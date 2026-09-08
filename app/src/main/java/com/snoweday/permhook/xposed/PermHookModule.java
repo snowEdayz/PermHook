@@ -176,7 +176,7 @@ public final class PermHookModule extends XposedModule {
 
         int calleeUid = activityInfo.applicationInfo.uid;
         Intent confirmIntent = new Intent(CONFIRM_ACTION)
-                .addFlags(0x00800000)
+                .addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                 .setPackage(CONFIRM_PACKAGE)
                 .putExtra(EXTRA_CALLER_PACKAGE, callerPackage)
                 .putExtra(EXTRA_CALLEE_PACKAGE, targetPackage)
