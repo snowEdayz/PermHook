@@ -198,11 +198,11 @@ OplusAppStartConfirmManager.checkStartActivityForConfirm(
 Hook 现在先根据 caller 和 target 执行用户规则，再决定是否调用 `chain.proceed()`：
 
 - 命中“经过 Activity 确认”时，构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，并保持外层 `Boolean=false`；确认 Intent 复用 OEM 的关键 flags/Extras，显式解析 `com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity`。
-- 确认 Activity 的 `ActivityInfo` 优先通过 OEM 使用的 `ActivityTaskSupervisor.resolveActivity()` 解析，并传入原始 `ProfilerInfo`、调用方 User ID、真实调用 UID 和 Binder 调用 UID；该解析不可用时再回退到 `PackageManager`，避免已安装的确认 Activity 因解析路径不同而误落到 OEM 的 `(null, true)` 硬拦截结果。
+- 确认 Activity 的 `ActivityInfo` 优先通过 OEM 使用的 `ActivityTaskSupervisor.resolveActivity()` 解析，并传入原始 `ProfilerInfo`、调用方 User ID、真实调用 UID 和 Binder 调用 UID；备用解析也按调用方 User ID 处理，若用户范围解析不可用则继续平台流程，避免跨用户误解析。
 - 命中“不经过 Activity 确认”时返回空结果，让 `OplusAccessControlManagerService` 继续普通启动流程。
 - 调用方包名与目标包名相同时，在规则匹配前直接返回空结果，始终不经过确认 Activity；`LaunchRule.matches` 中也保留同包防线。
 - 未命中或确认 Activity 不可解析时才继续 OEM 原逻辑。
-- `findMatchingRule` 不检查系统 App 标志，因此 `dst_pkg` 为系统 App 时不会被用户规则过滤；确认流程的内部标记仍会阻止递归。
+- `findMatchingRule` 不检查系统 App 标志，因此 `dst_pkg` 为系统 App 时不会被用户规则过滤；确认流程使用 system_server 内存登记的一次性随机令牌阻止递归，普通应用伪造 extra 或布尔值不会生效。
 
 IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先调用上述确认方法，并在返回非空时直接采用结果；这保证了前置的用户规则结果能够覆盖目标为系统 App 时的 OEM 短路。
 

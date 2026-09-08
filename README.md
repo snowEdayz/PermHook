@@ -23,7 +23,7 @@ PermHook 是一个基于 Modern Xposed API 102 的 Oplus/ColorOS 活动启动确
 操作：经过 Activity 确认
 ```
 
-这条规则会匹配目标包内的启动，并经过 `AppStartConfirmDialogActivity` 确认；也可以把操作改为“不经过 Activity 确认”，让命中规则的启动直接继续。设置 App 本身和确认 Activity 会被排除，避免确认流程递归。确认页面放行原始 Intent 时会携带一次性内部标记，防止同一启动再次被强制拦截。
+这条规则会匹配目标包内的启动，并经过 `AppStartConfirmDialogActivity` 确认；也可以把操作改为“不经过 Activity 确认”，让命中规则的启动直接继续。设置 App 本身和确认 Activity 会被排除，避免确认流程递归。确认页面放行原始 Intent 时会携带由 `system_server` 登记的一次性随机令牌，防止同一启动再次被强制拦截；普通应用伪造 extra 名称或布尔值不会获得放行。
 
 `any_user` 可以分别用于调用方包名或目标包名；例如调用方填写 `any_user`、目标填写具体包名时，只匹配非系统 User App 发起的启动。
 

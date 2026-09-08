@@ -5,6 +5,7 @@ import android.app.Application;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.snoweday.permhook.data.RuleStore;
 import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
@@ -45,6 +46,9 @@ public final class PermHookApplication extends Application
     @Override
     public void onServiceBind(XposedService boundService) {
         service = boundService;
+        if (boundService != null) {
+            RuleStore.synchronize(this, boundService);
+        }
         notifyListeners();
     }
 

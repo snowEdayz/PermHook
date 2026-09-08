@@ -185,6 +185,19 @@ public final class LaunchRule {
         return array.toString();
     }
 
+    /** Returns whether the stored value is a JSON array understood by the rule store. */
+    public static boolean isValidEncoding(String encoded) {
+        if (isBlank(encoded)) {
+            return false;
+        }
+        try {
+            new JSONArray(encoded);
+            return true;
+        } catch (JSONException ignored) {
+            return false;
+        }
+    }
+
     public static List<LaunchRule> decode(String encoded) {
         List<LaunchRule> rules = new ArrayList<>();
         if (isBlank(encoded)) {

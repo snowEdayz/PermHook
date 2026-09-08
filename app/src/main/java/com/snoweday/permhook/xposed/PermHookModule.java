@@ -8,6 +8,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Binder;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Pair;
 
@@ -15,6 +16,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -47,13 +51,18 @@ public final class PermHookModule extends XposedModule {
     private static final String EXTRA_REQUEST_CODE = "request_code";
     private static final String EXTRA_START_TYPE = "start_type";
     private static final String EXTRA_CONFIRM_VERSION = "activity_start_confirm_version";
-    private static final String INTERNAL_MARKER =
-            "com.snoweday.permhook.extra.FORCE_CONFIRM_CONSUMED";
+    private static final String INTERNAL_TOKEN_EXTRA =
+            "com.snoweday.permhook.extra.FORCE_CONFIRM_TOKEN";
 
     private static final int CONFIRM_VERSION = 2;
     private static final int START_TYPE_NORMAL = 0;
     private static final int FIRST_APPLICATION_UID = 10000;
     private static final int UID_PER_USER_RANGE = 100000;
+    private static final long INTERNAL_TOKEN_TTL_MILLIS = 10 * 60 * 1000L;
+    private static final int MAX_PENDING_INTERNAL_LAUNCHES = 256;
+
+    private static final Map<String, PendingInternalLaunch> PENDING_INTERNAL_LAUNCHES =
+            new ConcurrentHashMap<>();
 
     private volatile List<LaunchRule> rules = Collections.emptyList();
 
@@ -173,12 +182,20 @@ public final class PermHookModule extends XposedModule {
         ActivityInfo activityInfo = (ActivityInfo) activityInfoObject;
         Intent sourceIntent = (Intent) sourceIntentObject;
         String callerPackage = (String) callerPackageObject;
-        String targetPackage = activityInfo.applicationInfo == null
-                ? null : activityInfo.applicationInfo.packageName;
-        if (targetPackage == null
-                || CONFIRM_PACKAGE.equals(callerPackage)
-                || CONFIRM_PACKAGE.equals(targetPackage)
-                || sourceIntent.getBooleanExtra(INTERNAL_MARKER, false)) {
+        ApplicationInfo targetApplicationInfo = activityInfo.applicationInfo;
+        String targetPackage = targetApplicationInfo == null
+                ? null : targetApplicationInfo.packageName;
+        if (targetPackage == null) {
+            return null;
+        }
+        int callerUid = (Integer) callingUidObject;
+        if (consumeInternalToken(sourceIntent, targetPackage, targetApplicationInfo.uid)) {
+            // The confirmation Activity is now returning the original Intent. The
+            // token is consumed atomically, so replaying or forging it cannot bypass rules.
+            return null;
+        }
+        if (CONFIRM_PACKAGE.equals(callerPackage)
+                || CONFIRM_PACKAGE.equals(targetPackage)) {
             return null;
         }
 
@@ -209,7 +226,7 @@ public final class PermHookModule extends XposedModule {
                         activityInfo,
                         sourceIntent,
                         (Integer) requestCodeObject,
-                        (Integer) callingUidObject);
+                        callerUid);
             }
         }
         return null;
@@ -234,7 +251,7 @@ public final class PermHookModule extends XposedModule {
                 .setClassName(CONFIRM_PACKAGE, CONFIRM_ACTIVITY)
                 .putExtra(EXTRA_CALLER_PACKAGE, callerPackage)
                 .putExtra(EXTRA_CALLEE_PACKAGE, targetPackage)
-                .putExtra(EXTRA_USER_ID, calleeUid / UID_PER_USER_RANGE)
+                .putExtra(EXTRA_USER_ID, userIdForUid(calleeUid))
                 .putExtra(EXTRA_CALLER_UID, callerUid)
                 .putExtra(EXTRA_CALLEE_UID, calleeUid)
                 .putExtra(EXTRA_REQUEST_CODE, requestCode)
@@ -248,14 +265,16 @@ public final class PermHookModule extends XposedModule {
         if (sourceRecord != null && requestCode >= 0) {
             originalIntent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
         }
-        originalIntent.putExtra(INTERNAL_MARKER, true);
         confirmIntent.putExtra(Intent.EXTRA_INTENT, originalIntent);
 
         ActivityInfo confirmationInfo = resolveConfirmationActivity(
                 manager, confirmIntent, profilerInfo, callerUid);
         if (confirmationInfo == null && context != null) {
             try {
-                ResolveInfo resolveInfo = context.getPackageManager().resolveActivity(confirmIntent, 0);
+                PackageManager packageManager = context.getPackageManager();
+                int callerUserId = userIdForUid(callerUid);
+                ResolveInfo resolveInfo = resolveActivityForUser(
+                        packageManager, confirmIntent, callerUserId);
                 confirmationInfo = resolveInfo == null ? null : resolveInfo.activityInfo;
             } catch (Throwable error) {
                 log(Log.WARN, TAG, "Unable to resolve Oplus confirmation activity", error);
@@ -265,6 +284,14 @@ public final class PermHookModule extends XposedModule {
             log(Log.WARN, TAG, "Oplus confirmation activity is not installed");
             return null;
         }
+
+        String internalToken = registerInternalToken(targetPackage, calleeUid);
+        if (internalToken == null) {
+            log(Log.WARN, TAG, "Too many pending confirmation Intents; using platform flow");
+            return null;
+        }
+        originalIntent.putExtra(INTERNAL_TOKEN_EXTRA, internalToken);
+        confirmIntent.putExtra(Intent.EXTRA_INTENT, originalIntent);
 
         Pair<Intent, ActivityInfo> resolvedActivity =
                 new Pair<>(confirmIntent, confirmationInfo);
@@ -305,7 +332,7 @@ public final class PermHookModule extends XposedModule {
                     null,
                     0,
                     profilerInfo,
-                    callerUid / UID_PER_USER_RANGE,
+                    userIdForUid(callerUid),
                     callerUid,
                     Binder.getCallingUid());
             return resolved instanceof ActivityInfo ? (ActivityInfo) resolved : null;
@@ -337,6 +364,27 @@ public final class PermHookModule extends XposedModule {
         return null;
     }
 
+    private static ResolveInfo resolveActivityForUser(
+            PackageManager packageManager, Intent intent, int userId) {
+        if (userId < 0) {
+            return packageManager.resolveActivity(intent, 0);
+        }
+        try {
+            // resolveActivityAsUser is hidden from some app SDK stubs but is available
+            // on the system_server PackageManager implementation.
+            Method method = PackageManager.class.getDeclaredMethod(
+                    "resolveActivityAsUser", Intent.class, int.class, int.class);
+            method.setAccessible(true);
+            Object resolved = method.invoke(packageManager, intent, 0, userId);
+            return resolved instanceof ResolveInfo ? (ResolveInfo) resolved : null;
+        } catch (Throwable error) {
+            Log.w(TAG, "User-scoped Activity resolution is unavailable", error);
+            // Do not resolve against the default user: that can select a different
+            // profile's confirmation Activity. The caller will continue platform flow.
+            return null;
+        }
+    }
+
     private SharedPreferences loadPreferences() {
         try {
             return getRemotePreferences(RuleStore.PREF_GROUP);
@@ -347,7 +395,75 @@ public final class PermHookModule extends XposedModule {
     }
 
     private static List<LaunchRule> readRules(SharedPreferences preferences) {
-        return LaunchRule.decode(preferences.getString(RuleStore.RULES_KEY, "[]"));
+        try {
+            return LaunchRule.decode(preferences.getString(RuleStore.RULES_KEY, "[]"));
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to read remote rules", error);
+            return Collections.emptyList();
+        }
+    }
+
+    private static String registerInternalToken(String targetPackage, int calleeUid) {
+        long now = SystemClock.uptimeMillis();
+        pruneInternalTokens(now);
+        if (PENDING_INTERNAL_LAUNCHES.size() >= MAX_PENDING_INTERNAL_LAUNCHES) {
+            return null;
+        }
+
+        PendingInternalLaunch pending = new PendingInternalLaunch(targetPackage, calleeUid, now);
+        for (int attempt = 0; attempt < 4; attempt++) {
+            String token = UUID.randomUUID().toString();
+            if (PENDING_INTERNAL_LAUNCHES.putIfAbsent(token, pending) == null) {
+                return token;
+            }
+        }
+        return null;
+    }
+
+    private static boolean consumeInternalToken(
+            Intent sourceIntent, String targetPackage, int calleeUid) {
+        String token;
+        try {
+            token = sourceIntent.getStringExtra(INTERNAL_TOKEN_EXTRA);
+        } catch (Throwable ignored) {
+            return false;
+        }
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+
+        PendingInternalLaunch pending = PENDING_INTERNAL_LAUNCHES.get(token);
+        if (pending == null) {
+            return false;
+        }
+        long age = SystemClock.uptimeMillis() - pending.createdAt;
+        if (age >= INTERNAL_TOKEN_TTL_MILLIS) {
+            PENDING_INTERNAL_LAUNCHES.remove(token, pending);
+            return false;
+        }
+        if (!pending.matches(targetPackage, calleeUid)) {
+            return false;
+        }
+        boolean consumed = PENDING_INTERNAL_LAUNCHES.remove(token, pending);
+        if (consumed) {
+            try {
+                sourceIntent.removeExtra(INTERNAL_TOKEN_EXTRA);
+            } catch (Throwable ignored) {
+                // The token is already consumed; failure to scrub the outgoing Intent
+                // does not make it valid for a second launch.
+            }
+        }
+        return consumed;
+    }
+
+    private static void pruneInternalTokens(long now) {
+        for (Map.Entry<String, PendingInternalLaunch> entry
+                : PENDING_INTERNAL_LAUNCHES.entrySet()) {
+            PendingInternalLaunch pending = entry.getValue();
+            if (now - pending.createdAt >= INTERNAL_TOKEN_TTL_MILLIS) {
+                PENDING_INTERNAL_LAUNCHES.remove(entry.getKey(), pending);
+            }
+        }
     }
 
     private boolean isUserApp(Context context, String packageName, int callerUid) {
@@ -355,16 +471,48 @@ public final class PermHookModule extends XposedModule {
             return false;
         }
         try {
-            ApplicationInfo applicationInfo = context.getPackageManager()
-                    .getApplicationInfo(packageName, 0);
+            ApplicationInfo applicationInfo = getApplicationInfoForUid(
+                    context.getPackageManager(), packageName, callerUid);
             return applicationInfo != null
+                    && appIdForUid(applicationInfo.uid) == appIdForUid(callerUid)
                     && (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
-        } catch (PackageManager.NameNotFoundException ignored) {
-            return false;
         } catch (Throwable error) {
             log(Log.WARN, TAG, "Unable to classify caller as a user app", error);
             return false;
         }
+    }
+
+    private static ApplicationInfo getApplicationInfoForUid(
+            PackageManager packageManager, String packageName, int callerUid) {
+        int callerUserId = userIdForUid(callerUid);
+        try {
+            // getApplicationInfoAsUser avoids accidentally querying user 0 for a
+            // caller from a work profile or another secondary user.
+            Method method = PackageManager.class.getDeclaredMethod(
+                    "getApplicationInfoAsUser", String.class, int.class, int.class);
+            method.setAccessible(true);
+            Object value = method.invoke(packageManager, packageName, 0, callerUserId);
+            if (value instanceof ApplicationInfo) {
+                return (ApplicationInfo) value;
+            }
+        } catch (Throwable ignored) {
+            // Fall back to the public UID lookup below on older or restricted runtimes.
+        }
+
+        String[] packagesForUid = packageManager.getPackagesForUid(callerUid);
+        if (packagesForUid == null) {
+            return null;
+        }
+        for (String packageForUid : packagesForUid) {
+            if (packageName.equals(packageForUid)) {
+                try {
+                    return packageManager.getApplicationInfo(packageName, 0);
+                } catch (PackageManager.NameNotFoundException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private static boolean isUserApp(ApplicationInfo applicationInfo) {
@@ -374,7 +522,15 @@ public final class PermHookModule extends XposedModule {
     }
 
     private static boolean isApplicationUid(int uid) {
-        return uid >= 0 && uid % UID_PER_USER_RANGE >= FIRST_APPLICATION_UID;
+        return appIdForUid(uid) >= FIRST_APPLICATION_UID;
+    }
+
+    private static int userIdForUid(int uid) {
+        return uid < 0 ? -1 : uid / UID_PER_USER_RANGE;
+    }
+
+    private static int appIdForUid(int uid) {
+        return uid < 0 ? -1 : uid % UID_PER_USER_RANGE;
     }
 
     private static Context findContext(Object manager) {
@@ -398,6 +554,22 @@ public final class PermHookModule extends XposedModule {
             }
         }
         return null;
+    }
+
+    private static final class PendingInternalLaunch {
+        final String targetPackage;
+        final int calleeUid;
+        final long createdAt;
+
+        PendingInternalLaunch(String targetPackage, int calleeUid, long createdAt) {
+            this.targetPackage = targetPackage;
+            this.calleeUid = calleeUid;
+            this.createdAt = createdAt;
+        }
+
+        boolean matches(String actualTargetPackage, int actualCalleeUid) {
+            return calleeUid == actualCalleeUid && targetPackage.equals(actualTargetPackage);
+        }
     }
 
     private static final class RuleMatch {

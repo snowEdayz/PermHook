@@ -204,8 +204,13 @@ public final class MainActivity extends AppCompatActivity {
 
     private void updateServiceStatus(@Nullable XposedService service) {
         if (RuleStore.hasRemoteAccess(service)) {
-            serviceTitle.setText("Xposed 服务已连接");
-            serviceDetail.setText("规则会同步到 system_server，修改后无需重启系统服务。");
+            if (RuleStore.hasPendingLocalChanges(getApplicationContext())) {
+                serviceTitle.setText("Xposed 服务已连接，规则待同步");
+                serviceDetail.setText("本地规则尚未写入 system_server；连接恢复后会自动重试。");
+            } else {
+                serviceTitle.setText("Xposed 服务已连接");
+                serviceDetail.setText("规则已同步到 system_server，修改后无需重启系统服务。");
+            }
         } else {
             serviceTitle.setText("等待 Xposed 服务");
             serviceDetail.setText("当前仅保存本地副本；请在 Modern Xposed 中启用本模块并勾选 system 作用域。");
