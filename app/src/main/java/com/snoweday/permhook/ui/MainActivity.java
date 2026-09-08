@@ -226,9 +226,8 @@ public final class MainActivity extends AppCompatActivity {
 
         SwitchMaterial enabled = new SwitchMaterial(this);
         enabled.setText("规则启用");
+        enabled.setContentDescription("规则启用");
         enabled.setChecked(existing == null || existing.isEnabled());
-        form.addView(enabled, marginParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
@@ -236,7 +235,8 @@ public final class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
-                .setTitle(existing == null ? "添加启动规则" : "编辑启动规则")
+                .setCustomTitle(editorTitle(
+                        existing == null ? "添加启动规则" : "编辑启动规则", enabled))
                 .setView(scrollView)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", null);
@@ -281,9 +281,8 @@ public final class MainActivity extends AppCompatActivity {
 
         android.widget.Switch enabled = new android.widget.Switch(this);
         enabled.setText("规则启用");
+        enabled.setContentDescription("规则启用");
         enabled.setChecked(existing == null || existing.isEnabled());
-        form.addView(enabled, marginParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
@@ -291,7 +290,8 @@ public final class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(existing == null ? "添加启动规则" : "编辑启动规则")
+                .setCustomTitle(editorTitle(
+                        existing == null ? "添加启动规则" : "编辑启动规则", enabled))
                 .setView(scrollView)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", null)
@@ -305,6 +305,21 @@ public final class MainActivity extends AppCompatActivity {
             });
         });
         dialog.show();
+    }
+
+    private LinearLayout editorTitle(String title, View enabledControl) {
+        LinearLayout titleBar = new LinearLayout(this);
+        titleBar.setOrientation(LinearLayout.HORIZONTAL);
+        titleBar.setGravity(Gravity.CENTER_VERTICAL);
+        titleBar.setPadding(dp(24), dp(8), dp(8), dp(4));
+
+        TextView titleView = textView(20, true);
+        titleView.setText(title);
+        titleBar.addView(titleView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        titleBar.addView(enabledControl, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return titleBar;
     }
 
     private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
