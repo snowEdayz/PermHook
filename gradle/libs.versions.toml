@@ -1,8 +1,9 @@
 [versions]
 agp = "9.2.1"
-xposed = "102.0.0"
+xposedApi = "102.0.0"
+xposedService = "101.0.0"
 appcompat = "1.7.1"
-core = "1.17.0"
+core = "1.16.0"
 material = "1.13.0"
 recyclerview = "1.4.0"
 
@@ -10,8 +11,8 @@ recyclerview = "1.4.0"
 agp-app = { id = "com.android.application", version.ref = "agp" }
 
 [libraries]
-libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "xposed" }
-libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "xposed" }
+libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "xposedApi" }
+libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "xposedService" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
