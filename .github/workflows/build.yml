@@ -6,8 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: permhook-pre-release
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -74,10 +78,26 @@ jobs:
           unzip -l "$APK" | grep -F 'META-INF/xposed/module.prop'
           unzip -l "$APK" | grep -F 'META-INF/xposed/scope.list'
 
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: permhook-apk-${{ github.run_number }}
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
+      - name: Publish APK to shared pre-release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: pre-release
+        run: |
+          APK=$(find app/build/outputs/apk/release -type f -name '*.apk' | sort | head -n 1)
+          test -n "$APK"
+          RELEASE_NOTES="Automated pre-release from commit ${GITHUB_SHA:0:7}."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "PermHook pre-release" \
+              --notes "$RELEASE_NOTES" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "PermHook pre-release" \
+              --notes "$RELEASE_NOTES" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+          gh release upload "$RELEASE_TAG" "$APK" --clobber
