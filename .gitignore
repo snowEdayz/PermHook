@@ -1,0 +1,27 @@
+.gradle/
+.idea/
+build/
+*/build/
+local.properties
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local signing material and generated signing properties
+signing/
+*.jks
+*.keystore
+signing.properties
+
+# Reverse-engineering inputs and generated output
+*.apk
+*.jar
+jadx_out/
+services_jadx/
+framework_jadx/
+ida_input/
+ida_services_input/
+
+# Machine-local reports/logs
+*.log

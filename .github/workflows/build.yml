@@ -1,0 +1,82 @@
+name: Build PermHook
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.5.1
+
+      - name: Build and lint pull requests
+        if: github.event_name == 'pull_request'
+        run: gradle --no-daemon assembleDebug lintDebug
+
+      - name: Verify release signing secrets
+        if: github.event_name != 'pull_request'
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          test -n "$SIGNING_KEYSTORE_BASE64"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          test -n "$SIGNING_KEY_PASSWORD"
+          mkdir -p "$RUNNER_TEMP/permhook-signing"
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/permhook-signing/release.jks"
+          cat > "$GRADLE_USER_HOME/gradle.properties" <<EOF
+          signing.storeFile=$RUNNER_TEMP/permhook-signing/release.jks
+          signing.storePassword=$SIGNING_STORE_PASSWORD
+          signing.keyAlias=$SIGNING_KEY_ALIAS
+          signing.keyPassword=$SIGNING_KEY_PASSWORD
+          EOF
+
+      - name: Build signed release
+        if: github.event_name != 'pull_request'
+        run: gradle --no-daemon assembleRelease lintDebug
+
+      - name: Verify Xposed metadata
+        if: always()
+        run: |
+          APK=$(find app/build/outputs/apk -name '*.apk' | head -n 1)
+          test -n "$APK"
+          unzip -l "$APK" | grep -F 'META-INF/xposed/java_init.list'
+          unzip -l "$APK" | grep -F 'META-INF/xposed/module.prop'
+          unzip -l "$APK" | grep -F 'META-INF/xposed/scope.list'
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: permhook-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

@@ -1,0 +1,74 @@
+# PermHook
+
+PermHook 是一个基于 Modern Xposed API 102 的 Oplus/ColorOS 活动启动确认模块。
+
+## 功能
+
+- Material Design 3 设置界面。
+- 使用规则指定 `caller package -> target package`。
+- 可选限制到具体 Activity 和 Intent action。
+- 规则支持 `*` 通配符，且只对不同包之间的启动生效。
+- 命中规则后，强制走 `com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity`。
+- 使用 Modern Xposed Remote Preferences 在设置 App 与 `system_server` 之间同步规则。
+
+规则示例：
+
+```text
+启动方：com.example.source
+目标包：com.example.target
+组件：留空
+Action：留空
+```
+
+这条规则会覆盖目标包内的普通 Activity 启动；设置 App 本身和确认 Activity 会被排除，避免确认流程递归。确认页面放行原始 Intent 时会携带一次性内部标记，防止同一启动再次被强制拦截。
+
+## Modern Xposed 配置
+
+- `META-INF/xposed/java_init.list`：Modern API 入口类。
+- `META-INF/xposed/module.prop`：API 101/102 声明。
+- `META-INF/xposed/scope.list`：使用 Modern API 命名的 `system`，即 `system_server`。
+
+模块针对当前分析的 Oplus 固件 hook：
+
+```text
+com.android.server.wm.OplusAppStartConfirmManager
+  .checkStartActivityForConfirm(...)
+```
+
+这个类名和返回结构属于 Oplus 私有实现；不同 ColorOS/Oplus 版本可能需要单独适配。
+
+## 构建
+
+本地需要 JDK 21、Gradle 9.5.1、Android SDK 37 和 Build Tools 37.0.0。GitHub Actions 会自动安装这些依赖。
+
+```bash
+gradle assembleDebug
+```
+
+release 签名从 Gradle properties 读取，不把私钥提交到仓库：
+
+```text
+signing.storeFile=/path/to/release.jks
+signing.storePassword=...
+signing.keyAlias=...
+signing.keyPassword=...
+```
+
+## GitHub Actions Secrets
+
+仓库的 release workflow 使用以下 Repository Secrets：
+
+- `SIGNING_KEYSTORE_BASE64`
+- `SIGNING_STORE_PASSWORD`
+- `SIGNING_KEY_ALIAS`
+- `SIGNING_KEY_PASSWORD`
+
+Actions 会把 keystore 写入 runner 临时目录，构建结束后由 runner 清理；源码仓库只保存 workflow 和签名配置约定。
+
+## 安装与启用
+
+1. 安装 LSPosed 2.x/支持 Modern Xposed API 102 的框架。
+2. 安装构建出的 APK。
+3. 在 LSPosed 中启用 PermHook，确认 `system` 作用域已生效。
+4. 重启 `system_server` 或重启设备。
+5. 打开 PermHook，确认 Remote Preferences 已连接后添加规则。
