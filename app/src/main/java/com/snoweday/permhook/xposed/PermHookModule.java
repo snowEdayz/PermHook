@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Binder;
 import android.util.Log;
 import android.util.Pair;
 
@@ -36,6 +37,8 @@ public final class PermHookModule extends XposedModule {
 
     private static final String CONFIRM_ACTION = "oplus.app.action.CHECK_ALLOW_START_ACTIVITY";
     private static final String CONFIRM_PACKAGE = "com.oplus.securitypermission";
+    private static final String CONFIRM_ACTIVITY =
+            "com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity";
     private static final String EXTRA_CALLER_PACKAGE = "caller_package";
     private static final String EXTRA_CALLEE_PACKAGE = "callee_package";
     private static final String EXTRA_USER_ID = "extra_userid";
@@ -120,12 +123,14 @@ public final class PermHookModule extends XposedModule {
                 }
                 Object confirmationResult = buildConfirmationResult(
                         chain.getThisObject(),
+                        chain.getArg(0),
                         match.callerPackage,
                         match.targetPackage,
                         match.activityInfo,
                         match.sourceIntent,
                         match.requestCode,
-                        match.callerUid);
+                        match.callerUid,
+                        chain.getArg(7));
                 if (confirmationResult != null) {
                     return confirmationResult;
                 }
@@ -212,22 +217,21 @@ public final class PermHookModule extends XposedModule {
 
     private Object buildConfirmationResult(
             Object manager,
+            Object sourceRecord,
             String callerPackage,
             String targetPackage,
             ActivityInfo activityInfo,
             Intent sourceIntent,
             int requestCode,
-            int callerUid) {
+            int callerUid,
+            Object profilerInfo) {
         Context context = findContext(manager);
-        if (context == null) {
-            log(Log.WARN, TAG, "Oplus confirmation context is unavailable");
-            return null;
-        }
 
         int calleeUid = activityInfo.applicationInfo.uid;
         Intent confirmIntent = new Intent(CONFIRM_ACTION)
                 .addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                 .setPackage(CONFIRM_PACKAGE)
+                .setClassName(CONFIRM_PACKAGE, CONFIRM_ACTIVITY)
                 .putExtra(EXTRA_CALLER_PACKAGE, callerPackage)
                 .putExtra(EXTRA_CALLEE_PACKAGE, targetPackage)
                 .putExtra(EXTRA_USER_ID, calleeUid / UID_PER_USER_RANGE)
@@ -238,24 +242,99 @@ public final class PermHookModule extends XposedModule {
                 .putExtra(EXTRA_CONFIRM_VERSION, CONFIRM_VERSION);
 
         Intent originalIntent = new Intent(sourceIntent);
+        if ((originalIntent.getFlags() & Intent.FLAG_ACTIVITY_FORWARD_RESULT) != 0) {
+            confirmIntent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
+        }
+        if (sourceRecord != null && requestCode >= 0) {
+            originalIntent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
+        }
         originalIntent.putExtra(INTERNAL_MARKER, true);
         confirmIntent.putExtra(Intent.EXTRA_INTENT, originalIntent);
 
-        ResolveInfo resolveInfo;
-        try {
-            resolveInfo = context.getPackageManager().resolveActivity(confirmIntent, 0);
-        } catch (Throwable error) {
-            log(Log.WARN, TAG, "Unable to resolve Oplus confirmation activity", error);
-            return null;
+        ActivityInfo confirmationInfo = resolveConfirmationActivity(
+                manager, confirmIntent, profilerInfo, callerUid);
+        if (confirmationInfo == null && context != null) {
+            try {
+                ResolveInfo resolveInfo = context.getPackageManager().resolveActivity(confirmIntent, 0);
+                confirmationInfo = resolveInfo == null ? null : resolveInfo.activityInfo;
+            } catch (Throwable error) {
+                log(Log.WARN, TAG, "Unable to resolve Oplus confirmation activity", error);
+            }
         }
-        if (resolveInfo == null || resolveInfo.activityInfo == null) {
+        if (confirmationInfo == null) {
             log(Log.WARN, TAG, "Oplus confirmation activity is not installed");
             return null;
         }
 
         Pair<Intent, ActivityInfo> resolvedActivity =
-                new Pair<>(confirmIntent, resolveInfo.activityInfo);
+                new Pair<>(confirmIntent, confirmationInfo);
+        // The second value is the OEM abort flag: false means launch the
+        // resolved confirmation Activity, while true means hard-intercept.
         return new Pair<>(resolvedActivity, Boolean.FALSE);
+    }
+
+    /**
+     * Resolve the confirmation Activity through the same system_server resolver
+     * used by OplusAppStartConfirmManager. PackageManager-only resolution can
+     * fail for the security-protected Activity or the target user's profile,
+     * causing the OEM method to fall back to a hard intercept.
+     */
+    private ActivityInfo resolveConfirmationActivity(
+            Object manager, Intent intent, Object profilerInfo, int callerUid) {
+        try {
+            Object atms = readField(manager, "mAtms");
+            Object taskSupervisor = readField(atms, "mTaskSupervisor");
+            if (taskSupervisor == null) {
+                return null;
+            }
+
+            Class<?> profilerInfoClass = profilerInfo == null
+                    ? Class.forName("android.app.ProfilerInfo", false,
+                    taskSupervisor.getClass().getClassLoader())
+                    : profilerInfo.getClass();
+            Method resolveActivity = findResolveActivityMethod(
+                    taskSupervisor.getClass(), profilerInfoClass);
+            if (resolveActivity == null) {
+                log(Log.WARN, TAG, "Oplus ActivityTaskSupervisor resolver is unavailable");
+                return null;
+            }
+            resolveActivity.setAccessible(true);
+            Object resolved = resolveActivity.invoke(
+                    taskSupervisor,
+                    intent,
+                    null,
+                    0,
+                    profilerInfo,
+                    callerUid / UID_PER_USER_RANGE,
+                    callerUid,
+                    Binder.getCallingUid());
+            return resolved instanceof ActivityInfo ? (ActivityInfo) resolved : null;
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to resolve Oplus confirmation Activity via system_server", error);
+            return null;
+        }
+    }
+
+    private static Method findResolveActivityMethod(
+            Class<?> type, Class<?> profilerInfoClass) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Method method : current.getDeclaredMethods()) {
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (!"resolveActivity".equals(method.getName())
+                        || parameterTypes.length != 7
+                        || parameterTypes[0] != Intent.class
+                        || parameterTypes[1] != String.class
+                        || parameterTypes[2] != int.class
+                        || parameterTypes[4] != int.class
+                        || parameterTypes[5] != int.class
+                        || parameterTypes[6] != int.class
+                        || !parameterTypes[3].isAssignableFrom(profilerInfoClass)) {
+                    continue;
+                }
+                return method;
+            }
+        }
+        return null;
     }
 
     private SharedPreferences loadPreferences() {
@@ -299,15 +378,19 @@ public final class PermHookModule extends XposedModule {
     }
 
     private static Context findContext(Object manager) {
-        if (manager == null) {
+        Object value = readField(manager, "mContext");
+        return value instanceof Context ? (Context) value : null;
+    }
+
+    private static Object readField(Object target, String fieldName) {
+        if (target == null) {
             return null;
         }
-        for (Class<?> type = manager.getClass(); type != null; type = type.getSuperclass()) {
+        for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
             try {
-                Field field = type.getDeclaredField("mContext");
+                Field field = type.getDeclaredField(fieldName);
                 field.setAccessible(true);
-                Object value = field.get(manager);
-                return value instanceof Context ? (Context) value : null;
+                return field.get(target);
             } catch (NoSuchFieldException ignored) {
                 // The field may be declared by a superclass in an OEM build.
             } catch (Throwable error) {

@@ -197,7 +197,8 @@ OplusAppStartConfirmManager.checkStartActivityForConfirm(
 
 Hook 现在先根据 caller 和 target 执行用户规则，再决定是否调用 `chain.proceed()`：
 
-- 命中“经过 Activity 确认”时，直接构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，不受 `isSystemAppOrSameApp` 的提前返回影响。
+- 命中“经过 Activity 确认”时，构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，并保持外层 `Boolean=false`；确认 Intent 复用 OEM 的关键 flags/Extras，显式解析 `com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity`。
+- 确认 Activity 的 `ActivityInfo` 优先通过 OEM 使用的 `ActivityTaskSupervisor.resolveActivity()` 解析，并传入原始 `ProfilerInfo`、调用方 User ID、真实调用 UID 和 Binder 调用 UID；该解析不可用时再回退到 `PackageManager`，避免已安装的确认 Activity 因解析路径不同而误落到 OEM 的 `(null, true)` 硬拦截结果。
 - 命中“不经过 Activity 确认”时返回空结果，让 `OplusAccessControlManagerService` 继续普通启动流程。
 - 调用方包名与目标包名相同时，在规则匹配前直接返回空结果，始终不经过确认 Activity；`LaunchRule.matches` 中也保留同包防线。
 - 未命中或确认 Activity 不可解析时才继续 OEM 原逻辑。
