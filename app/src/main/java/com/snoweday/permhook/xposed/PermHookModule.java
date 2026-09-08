@@ -7,7 +7,6 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.os.UserHandle;
 import android.util.Log;
 import android.util.Pair;
 
@@ -49,6 +48,7 @@ public final class PermHookModule extends XposedModule {
 
     private static final int CONFIRM_VERSION = 2;
     private static final int START_TYPE_NORMAL = 0;
+    private static final int UID_PER_USER_RANGE = 100000;
 
     private volatile List<LaunchRule> rules = Collections.emptyList();
 
@@ -180,7 +180,7 @@ public final class PermHookModule extends XposedModule {
                 .setPackage(CONFIRM_PACKAGE)
                 .putExtra(EXTRA_CALLER_PACKAGE, callerPackage)
                 .putExtra(EXTRA_CALLEE_PACKAGE, targetPackage)
-                .putExtra(EXTRA_USER_ID, UserHandle.getUserId(calleeUid))
+                .putExtra(EXTRA_USER_ID, calleeUid / UID_PER_USER_RANGE)
                 .putExtra(EXTRA_CALLER_UID, callerUid)
                 .putExtra(EXTRA_CALLEE_UID, calleeUid)
                 .putExtra(EXTRA_REQUEST_CODE, requestCode)
