@@ -15,7 +15,6 @@ public final class LaunchRule {
     private static final String KEY_ID = "id";
     private static final String KEY_CALLER = "callerPackage";
     private static final String KEY_TARGET = "targetPackage";
-    private static final String KEY_COMPONENT = "component";
     private static final String KEY_OPERATION = "operation";
     private static final String OPERATION_CONFIRM = "confirm";
     private static final String OPERATION_BYPASS = "bypass";
@@ -25,7 +24,6 @@ public final class LaunchRule {
     private final String id;
     private final String callerPackage;
     private final String targetPackage;
-    private final String component;
     private final boolean requiresConfirmationActivity;
     private final boolean enabled;
     private final String label;
@@ -34,17 +32,12 @@ public final class LaunchRule {
             String id,
             String callerPackage,
             String targetPackage,
-            String component,
             boolean requiresConfirmationActivity,
             boolean enabled,
             String label) {
         this.id = nonBlankOr(id, UUID.randomUUID().toString());
         this.callerPackage = normalizePackage(callerPackage);
         this.targetPackage = normalizePackage(targetPackage);
-        // The editor represents an omitted match field as '*'. Keep that
-        // invariant for legacy JSON rules as well, so component matching is
-        // always part of the same AND condition as caller and target.
-        this.component = normalizeMatchField(component);
         this.requiresConfirmationActivity = requiresConfirmationActivity;
         this.enabled = enabled;
         this.label = normalizeOptional(label);
@@ -53,7 +46,6 @@ public final class LaunchRule {
     public static LaunchRule create(
             String callerPackage,
             String targetPackage,
-            String component,
             boolean requiresConfirmationActivity,
             boolean enabled,
             String label) {
@@ -61,7 +53,6 @@ public final class LaunchRule {
                 UUID.randomUUID().toString(),
                 callerPackage,
                 targetPackage,
-                component,
                 requiresConfirmationActivity,
                 enabled,
                 label);
@@ -79,10 +70,6 @@ public final class LaunchRule {
         return targetPackage;
     }
 
-    public String getComponent() {
-        return component;
-    }
-
     public boolean requiresConfirmationActivity() {
         return requiresConfirmationActivity;
     }
@@ -96,14 +83,13 @@ public final class LaunchRule {
     }
 
     public LaunchRule withEnabled(boolean value) {
-        return new LaunchRule(id, callerPackage, targetPackage, component,
+        return new LaunchRule(id, callerPackage, targetPackage,
                 requiresConfirmationActivity, value, label);
     }
 
     public LaunchRule withValues(
             String newCaller,
             String newTarget,
-            String newComponent,
             boolean newRequiresConfirmationActivity,
             boolean newEnabled,
             String newLabel) {
@@ -111,7 +97,6 @@ public final class LaunchRule {
                 id,
                 newCaller,
                 newTarget,
-                newComponent,
                 newRequiresConfirmationActivity,
                 newEnabled,
                 newLabel);
@@ -121,21 +106,13 @@ public final class LaunchRule {
      * Matches a resolved start request. A rule only applies to a cross-package
      * start; same-package starts are intentionally left to the platform.
      */
-    public boolean matches(
-            String actualCaller,
-            String actualTarget,
-            String fullComponent,
-            String shortComponent) {
+    public boolean matches(String actualCaller, String actualTarget) {
         if (!enabled || isBlank(actualCaller) || isBlank(actualTarget)
                 || actualCaller.equals(actualTarget)) {
             return false;
         }
         if (!globMatches(callerPackage, actualCaller)
                 || !globMatches(targetPackage, actualTarget)) {
-            return false;
-        }
-        if (!globMatches(component, fullComponent)
-                && !globMatches(component, shortComponent)) {
             return false;
         }
         return true;
@@ -145,9 +122,6 @@ public final class LaunchRule {
         StringBuilder builder = new StringBuilder(callerPackage)
                 .append("  →  ")
                 .append(targetPackage);
-        if (!isBlank(component)) {
-            builder.append(" / ").append(component);
-        }
         builder.append(" · ")
                 .append(requiresConfirmationActivity
                         ? "经过 Activity 确认"
@@ -160,7 +134,6 @@ public final class LaunchRule {
         object.put(KEY_ID, id);
         object.put(KEY_CALLER, callerPackage);
         object.put(KEY_TARGET, targetPackage);
-        object.put(KEY_COMPONENT, component);
         object.put(KEY_OPERATION,
                 requiresConfirmationActivity ? OPERATION_CONFIRM : OPERATION_BYPASS);
         object.put(KEY_ENABLED, enabled);
@@ -183,7 +156,6 @@ public final class LaunchRule {
                 object.optString(KEY_ID, ""),
                 caller,
                 target,
-                object.optString(KEY_COMPONENT, ""),
                 requiresConfirmationActivity,
                 object.optBoolean(KEY_ENABLED, true),
                 object.optString(KEY_LABEL, ""));
@@ -235,11 +207,6 @@ public final class LaunchRule {
 
     private static String normalizeOptional(String value) {
         return value == null ? "" : value.trim();
-    }
-
-    private static String normalizeMatchField(String value) {
-        String normalized = normalizeOptional(value);
-        return normalized.isEmpty() ? ANY : normalized;
     }
 
     private static String nonBlankOr(String value, String fallback) {

@@ -195,7 +195,7 @@ OplusAppStartConfirmManager.checkStartActivityForConfirm(
 )
 ```
 
-Hook 现在先根据 caller、target 和组件执行用户规则，再决定是否调用 `chain.proceed()`：
+Hook 现在先根据 caller 和 target 执行用户规则，再决定是否调用 `chain.proceed()`：
 
 - 命中“经过 Activity 确认”时，直接构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，不受 `isSystemAppOrSameApp` 的提前返回影响。
 - 命中“不经过 Activity 确认”时返回空结果，让 `OplusAccessControlManagerService` 继续普通启动流程。
@@ -204,15 +204,14 @@ Hook 现在先根据 caller、target 和组件执行用户规则，再决定是�
 
 IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先调用上述确认方法，并在返回非空时直接采用结果；这保证了前置的用户规则结果能够覆盖目标为系统 App 时的 OEM 短路。
 
-## 用户规则的三项 AND 匹配
+## 用户规则的 caller/target AND 匹配
 
-用户规则现在只有在下面三项都匹配时才会生效：
+用户规则现在只有在下面两项都匹配时才会生效：
 
 1. 调用方包名匹配 `callerPkg`。
 2. 目标包名匹配 `aInfo.applicationInfo.packageName`。
-3. 组件匹配实际启动组件的完整名或短名。
 
-`PermHookModule.findMatchingRule` 优先使用显式 `Intent` 组件；Intent 没有组件时，使用已解析的 `ActivityInfo.name` 构造组件名。`LaunchRule.matches` 会无条件校验组件，不再把空组件当成“跳过组件条件”。为兼容旧 JSON 规则，模型层会把历史空组件归一化为 `*`；因此“任意组件”必须通过 `*` 表达，而不是绕过组件匹配。调用方和目标包仍要求是跨包启动。
+`LaunchRule.matches` 仅校验调用方和目标包名；空白包名由编辑器保存为 `*`，表示匹配任意包。历史规则中的未知字段不会参与匹配。调用方和目标包仍要求是跨包启动。
 
 关键源码位置：
 

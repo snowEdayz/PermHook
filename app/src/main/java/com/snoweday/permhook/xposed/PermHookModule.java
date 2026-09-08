@@ -1,6 +1,5 @@
 package com.snoweday.permhook.xposed;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -157,14 +156,8 @@ public final class PermHookModule extends XposedModule {
             return null;
         }
 
-        ComponentName component = sourceIntent.getComponent();
-        if (component == null) {
-            component = new ComponentName(targetPackage, activityInfo.name);
-        }
-        String fullComponent = component.flattenToString();
-        String shortComponent = component.flattenToShortString();
         for (LaunchRule rule : rules) {
-            if (rule.matches(callerPackage, targetPackage, fullComponent, shortComponent)) {
+            if (rule.matches(callerPackage, targetPackage)) {
                 return new RuleMatch(
                         rule,
                         callerPackage,

@@ -53,9 +53,9 @@ import com.snoweday.permhook.data.RuleStore;
 public final class MainActivity extends AppCompatActivity {
     private static final String TAG = "PermHookUi";
     private static final String RULE_REQUIREMENT_HINT =
-            "调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。";
+            "调用方包名、目标包名至少填写一项；空白项会自动补为 *。";
     private static final String RULE_EDITOR_HINT = RULE_REQUIREMENT_HINT
-            + "\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。"
+            + "\n包名支持 * 通配符。"
             + "\n操作可选择经过 Activity 确认或不经过 Activity 直接启动。"
             + "\n调用方和目标包必须不同。";
 
@@ -227,7 +227,6 @@ public final class MainActivity extends AppCompatActivity {
 
         InputField caller = addInput(form, "调用方包名", existing == null ? "" : existing.getCallerPackage());
         InputField target = addInput(form, "目标包名", existing == null ? "" : existing.getTargetPackage());
-        InputField component = addInput(form, "组件", existing == null ? "" : existing.getComponent());
         OperationSelector operation = addMaterialOperationSelector(
                 form, existing == null || existing.requiresConfirmationActivity());
         InputField label = addInput(form, "备注（可选）", existing == null ? "" : existing.getLabel());
@@ -260,12 +259,10 @@ public final class MainActivity extends AppCompatActivity {
             positive.setOnClickListener(view -> {
                 String callerPackage = valueOf(caller.edit);
                 String targetPackage = valueOf(target.edit);
-                String componentValue = valueOf(component.edit);
                 String labelValue = valueOf(label.edit);
                 saveRule(dialog, existing, existingPosition, callerPackage, targetPackage,
-                        componentValue, operation.requiresConfirmation(), enabled.isChecked(), labelValue,
-                        hint, caller.edit, target.edit, component.edit,
-                        caller.layout, target.layout);
+                        operation.requiresConfirmation(), enabled.isChecked(), labelValue,
+                        hint, caller.edit, target.edit, caller.layout, target.layout);
             });
         });
         dialog.show();
@@ -280,8 +277,6 @@ public final class MainActivity extends AppCompatActivity {
                 existing == null ? "" : existing.getCallerPackage());
         EditText target = addPlainInput(form, "目标包名",
                 existing == null ? "" : existing.getTargetPackage());
-        EditText component = addPlainInput(form, "组件",
-                existing == null ? "" : existing.getComponent());
         OperationSelector operation = addFallbackOperationSelector(
                 form, existing == null || existing.requiresConfirmationActivity());
         EditText label = addPlainInput(form, "备注（可选）",
@@ -314,9 +309,9 @@ public final class MainActivity extends AppCompatActivity {
             android.widget.Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             positive.setOnClickListener(view -> {
                 saveRule(dialog, existing, existingPosition, valueOf(caller), valueOf(target),
-                        valueOf(component), operation.requiresConfirmation(), enabled.isChecked(),
+                        operation.requiresConfirmation(), enabled.isChecked(),
                         valueOf(label),
-                        hint, caller, target, component, null, null);
+                        hint, caller, target, null, null);
             });
         });
         dialog.show();
@@ -378,14 +373,14 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
-            String callerPackage, String targetPackage, String componentValue,
+            String callerPackage, String targetPackage,
             boolean requiresConfirmation, boolean enabled, String labelValue,
             TextView requirementHint, EditText callerEdit,
-            EditText targetEdit, EditText componentEdit, @Nullable TextInputLayout callerLayout,
+            EditText targetEdit, @Nullable TextInputLayout callerLayout,
             @Nullable TextInputLayout targetLayout) {
         clearError(callerEdit, callerLayout);
         clearError(targetEdit, targetLayout);
-        if (callerPackage.isEmpty() && targetPackage.isEmpty() && componentValue.isEmpty()) {
+        if (callerPackage.isEmpty() && targetPackage.isEmpty()) {
             highlightRequirementHint(requirementHint);
             return;
         }
@@ -396,10 +391,6 @@ public final class MainActivity extends AppCompatActivity {
         if (targetPackage.isEmpty()) {
             targetPackage = LaunchRule.ANY;
             targetEdit.setText(targetPackage);
-        }
-        if (componentValue.isEmpty()) {
-            componentValue = LaunchRule.ANY;
-            componentEdit.setText(componentValue);
         }
         if (!isPackagePattern(callerPackage)) {
             setError(callerEdit, callerLayout, "请输入有效包名或 * 通配符");
@@ -415,9 +406,9 @@ public final class MainActivity extends AppCompatActivity {
         }
 
         LaunchRule updated = existing == null
-                ? LaunchRule.create(callerPackage, targetPackage, componentValue,
+                ? LaunchRule.create(callerPackage, targetPackage,
                 requiresConfirmation, enabled, labelValue)
-                : existing.withValues(callerPackage, targetPackage, componentValue,
+                : existing.withValues(callerPackage, targetPackage,
                 requiresConfirmation, enabled, labelValue);
         if (existingPosition < 0) {
             rules.add(updated);
