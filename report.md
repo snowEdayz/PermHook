@@ -216,6 +216,8 @@ IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先
 
 `any_user` 是调用方或目标包名字段的精确特殊 token：只有字段完整等于 `any_user` 时，才要求对应实际包是非系统 User App。目标状态取自已解析的 `ActivityInfo.applicationInfo`；调用方状态由 system_server 的 `PackageManager` 查询，并同时检查调用 UID 是否属于应用 UID。`*` 仍表示不区分是否为系统 App 的任意包匹配。
 
+规则优先级按存储数组和界面列表的顺序确定，`findMatchingRule` 从第一条规则开始返回首个命中项。设置 App 支持长按规则卡片拖动排序，拖动结束时持久化新顺序；新增规则使用索引 `0` 插入，因此默认拥有最高优先级。
+
 关键源码位置：
 
 - `OplusActivityStartController.java:931-970`：黑白名单判断，`src_pkg`、`dst_pkg`、`activity` 命中返回 `-1`。

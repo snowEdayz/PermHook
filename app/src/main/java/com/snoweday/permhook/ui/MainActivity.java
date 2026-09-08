@@ -26,6 +26,7 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -123,6 +124,13 @@ public final class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 16, 8, 16, 4));
 
+        TextView priorityHint = textView(12, false);
+        priorityHint.setAlpha(0.7f);
+        priorityHint.setText("规则列表从上到下优先级递减；长按规则卡片可拖动排序");
+        root.addView(priorityHint, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                16, 0, 16, 0));
+
         FrameLayout listFrame = new FrameLayout(this);
         RecyclerView recyclerView = new RecyclerView(this);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
@@ -130,6 +138,7 @@ public final class MainActivity extends AppCompatActivity {
         recyclerView.setClipToPadding(false);
         adapter = new RuleAdapter(this);
         recyclerView.setAdapter(adapter);
+        new ItemTouchHelper(new RuleTouchCallback()).attachToRecyclerView(recyclerView);
         listFrame.addView(recyclerView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -413,7 +422,7 @@ public final class MainActivity extends AppCompatActivity {
                 : existing.withValues(callerPackage, targetPackage,
                 requiresConfirmation, enabled, labelValue);
         if (existingPosition < 0) {
-            rules.add(updated);
+            rules.add(0, updated);
         } else if (existingPosition < rules.size()) {
             rules.set(existingPosition, updated);
         }
@@ -537,6 +546,63 @@ public final class MainActivity extends AppCompatActivity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private final class RuleTouchCallback extends ItemTouchHelper.Callback {
+        private boolean orderChanged;
+
+        @Override
+        public int getMovementFlags(RecyclerView recyclerView,
+                RecyclerView.ViewHolder viewHolder) {
+            return makeMovementFlags(ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0);
+        }
+
+        @Override
+        public boolean onMove(RecyclerView recyclerView,
+                RecyclerView.ViewHolder viewHolder, RecyclerView.ViewHolder target) {
+            int from = viewHolder.getBindingAdapterPosition();
+            int to = target.getBindingAdapterPosition();
+            if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION
+                    || from == to || from >= adapter.items.size() || to >= adapter.items.size()) {
+                return false;
+            }
+
+            LaunchRule moved = adapter.items.remove(from);
+            adapter.items.add(to, moved);
+            rules.clear();
+            rules.addAll(adapter.items);
+            adapter.notifyItemMoved(from, to);
+
+            int changedStart = Math.min(from, to);
+            int changedCount = Math.abs(from - to) + 1;
+            adapter.notifyItemRangeChanged(changedStart, changedCount);
+            orderChanged = true;
+            return true;
+        }
+
+        @Override
+        public void onSwiped(RecyclerView.ViewHolder viewHolder, int direction) {
+            // Swiping is disabled; rule deletion remains an explicit action.
+        }
+
+        @Override
+        public boolean isLongPressDragEnabled() {
+            return true;
+        }
+
+        @Override
+        public boolean isItemViewSwipeEnabled() {
+            return false;
+        }
+
+        @Override
+        public void clearView(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder) {
+            super.clearView(recyclerView, viewHolder);
+            if (orderChanged) {
+                orderChanged = false;
+                persistRules();
+            }
+        }
     }
 
     private final class RuleAdapter extends RecyclerView.Adapter<RuleAdapter.RuleViewHolder> {
