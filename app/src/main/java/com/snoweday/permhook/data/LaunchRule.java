@@ -41,7 +41,10 @@ public final class LaunchRule {
         this.id = nonBlankOr(id, UUID.randomUUID().toString());
         this.callerPackage = normalizePackage(callerPackage);
         this.targetPackage = normalizePackage(targetPackage);
-        this.component = normalizeOptional(component);
+        // The editor represents an omitted match field as '*'. Keep that
+        // invariant for legacy JSON rules as well, so component matching is
+        // always part of the same AND condition as caller and target.
+        this.component = normalizeMatchField(component);
         this.requiresConfirmationActivity = requiresConfirmationActivity;
         this.enabled = enabled;
         this.label = normalizeOptional(label);
@@ -131,8 +134,7 @@ public final class LaunchRule {
                 || !globMatches(targetPackage, actualTarget)) {
             return false;
         }
-        if (!isBlank(component)
-                && !globMatches(component, fullComponent)
+        if (!globMatches(component, fullComponent)
                 && !globMatches(component, shortComponent)) {
             return false;
         }
@@ -233,6 +235,11 @@ public final class LaunchRule {
 
     private static String normalizeOptional(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String normalizeMatchField(String value) {
+        String normalized = normalizeOptional(value);
+        return normalized.isEmpty() ? ANY : normalized;
     }
 
     private static String nonBlankOr(String value, String fallback) {

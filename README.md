@@ -5,8 +5,8 @@ PermHook 是一个基于 Modern Xposed API 102 的 Oplus/ColorOS 活动启动确
 ## 功能
 
 - Material Design 3 设置界面。
-- 使用规则指定 `caller package -> target package`。
-- 可选限制到具体 Activity。
+- 使用规则指定 `caller package -> target package -> component` 三项匹配条件。
+- 三项都会参与匹配；未填写的项保存为 `*`，表示匹配任意值。
 - 命中规则后可选择经过 Activity 确认或直接启动应用。
 - 规则支持 `*` 通配符，且只对不同包之间的启动生效。
 - “经过 Activity 确认”操作会走 `com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity`。
@@ -17,11 +17,11 @@ PermHook 是一个基于 Modern Xposed API 102 的 Oplus/ColorOS 活动启动确
 ```text
 启动方：com.example.source
 目标包：com.example.target
-组件：留空
+组件：*
 操作：经过 Activity 确认
 ```
 
-这条规则会覆盖目标包内的普通 Activity 启动，并经过 `AppStartConfirmDialogActivity` 确认；也可以把操作改为“不经过 Activity 确认”，让命中规则的启动直接继续。设置 App 本身和确认 Activity 会被排除，避免确认流程递归。确认页面放行原始 Intent 时会携带一次性内部标记，防止同一启动再次被强制拦截。
+这条规则会匹配目标包内的任意组件，并经过 `AppStartConfirmDialogActivity` 确认；也可以把操作改为“不经过 Activity 确认”，让命中规则的启动直接继续。设置 App 本身和确认 Activity 会被排除，避免确认流程递归。确认页面放行原始 Intent 时会携带一次性内部标记，防止同一启动再次被强制拦截。
 
 ## Modern Xposed 配置
 
