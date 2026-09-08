@@ -75,6 +75,8 @@ public final class PermHookModule extends XposedModule {
         try {
             Class<?> managerClass = Class.forName(MANAGER_CLASS, false, classLoader);
             Class<?> activityRecordClass = Class.forName(ACTIVITY_RECORD_CLASS, false, classLoader);
+            Class<?> profilerInfoClass = Class.forName(
+                    "android.app.ProfilerInfo", false, classLoader);
             Method method = managerClass.getDeclaredMethod(
                     METHOD_NAME,
                     activityRecordClass,
@@ -84,7 +86,7 @@ public final class PermHookModule extends XposedModule {
                     int.class,
                     String.class,
                     android.app.ActivityOptions.class,
-                    android.app.ProfilerInfo.class,
+                    profilerInfoClass,
                     boolean.class);
 
             hook(method)
