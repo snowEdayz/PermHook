@@ -2,17 +2,24 @@ package com.snoweday.permhook.ui;
 
 import android.content.Context;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -37,6 +44,8 @@ import com.snoweday.permhook.data.RuleStore;
 
 /** Material 3 rule editor for forced Oplus app-start confirmations. */
 public final class MainActivity extends AppCompatActivity {
+    private static final String TAG = "PermHookUi";
+
     private final ArrayList<LaunchRule> rules = new ArrayList<>();
     private final PermHookApplication.Listener serviceListener =
             service -> runOnUiThread(this::refreshFromStore);
@@ -67,8 +76,16 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void buildContentView() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(view.getPaddingLeft(), systemBars.top,
+                    view.getPaddingRight(), systemBars.bottom);
+            return insets;
+        });
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle(R.string.app_name);
@@ -113,7 +130,17 @@ public final class MainActivity extends AppCompatActivity {
         FloatingActionButton addButton = new FloatingActionButton(this);
         addButton.setImageResource(R.drawable.ic_add);
         addButton.setContentDescription("添加规则");
-        addButton.setOnClickListener(view -> showRuleEditor(null, -1));
+        addButton.setOnClickListener(view -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            try {
+                showRuleEditor(null, -1);
+            } catch (RuntimeException error) {
+                Log.e(TAG, "Unable to open rule editor", error);
+                Toast.makeText(this, "无法打开规则编辑器，请稍后重试", Toast.LENGTH_LONG).show();
+            }
+        });
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(dp(56), dp(56),
                 Gravity.END | Gravity.BOTTOM);
         addParams.setMargins(0, 0, dp(20), dp(20));
@@ -124,6 +151,7 @@ public final class MainActivity extends AppCompatActivity {
         listParams.weight = 1;
         root.addView(listFrame, listParams);
         setContentView(root);
+        ViewCompat.requestApplyInsets(root);
         setSupportActionBar(toolbar);
     }
 
@@ -163,6 +191,23 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showRuleEditor(@Nullable LaunchRule existing, int existingPosition) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        try {
+            showMaterialRuleEditor(existing, existingPosition);
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Material rule editor could not be shown; using fallback", error);
+            try {
+                showFallbackRuleEditor(existing, existingPosition);
+            } catch (RuntimeException fallbackError) {
+                Log.e(TAG, "Fallback rule editor could not be shown", fallbackError);
+                Toast.makeText(this, "无法打开规则编辑器，请稍后重试", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void showMaterialRuleEditor(@Nullable LaunchRule existing, int existingPosition) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(24), 0, dp(24), 0);
@@ -185,50 +230,135 @@ public final class MainActivity extends AppCompatActivity {
         form.addView(enabled, marginParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
 
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.addView(form, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
                 .setTitle(existing == null ? "添加启动规则" : "编辑启动规则")
-                .setView(form)
+                .setView(scrollView)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", null);
         AlertDialog dialog = builder.create();
         dialog.setOnShowListener(ignored -> {
             android.widget.Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             positive.setOnClickListener(view -> {
-                caller.layout.setError(null);
-                target.layout.setError(null);
                 String callerPackage = valueOf(caller.edit);
                 String targetPackage = valueOf(target.edit);
                 String componentValue = valueOf(component.edit);
                 String actionValue = valueOf(action.edit);
                 String labelValue = valueOf(label.edit);
-                if (!isPackagePattern(callerPackage)) {
-                    caller.layout.setError("请输入有效包名或 * 通配符");
-                    return;
-                }
-                if (!isPackagePattern(targetPackage)) {
-                    target.layout.setError("请输入有效包名或 * 通配符");
-                    return;
-                }
-                if (!LaunchRule.ANY.equals(callerPackage) && callerPackage.equals(targetPackage)) {
-                    target.layout.setError("目标包必须与调用方包不同");
-                    return;
-                }
-
-                LaunchRule updated = existing == null
-                        ? LaunchRule.create(callerPackage, targetPackage, componentValue,
-                        actionValue, enabled.isChecked(), labelValue)
-                        : existing.withValues(callerPackage, targetPackage, componentValue,
-                        actionValue, enabled.isChecked(), labelValue);
-                if (existingPosition < 0) {
-                    rules.add(updated);
-                } else if (existingPosition < rules.size()) {
-                    rules.set(existingPosition, updated);
-                }
-                persistRules();
-                dialog.dismiss();
+                saveRule(dialog, existing, existingPosition, callerPackage, targetPackage,
+                        componentValue, actionValue, enabled.isChecked(), labelValue,
+                        caller.edit, target.edit, caller.layout, target.layout);
             });
         });
         dialog.show();
+    }
+
+    private void showFallbackRuleEditor(@Nullable LaunchRule existing, int existingPosition) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(24), dp(8), dp(24), 0);
+
+        EditText caller = addPlainInput(form, "调用方包名（必填）",
+                existing == null ? "" : existing.getCallerPackage());
+        EditText target = addPlainInput(form, "目标包名（必填）",
+                existing == null ? "" : existing.getTargetPackage());
+        EditText component = addPlainInput(form, "组件（可选）",
+                existing == null ? "" : existing.getComponent());
+        EditText action = addPlainInput(form, "Intent action（可选）",
+                existing == null ? "" : existing.getAction());
+        EditText label = addPlainInput(form, "备注（可选）",
+                existing == null ? "" : existing.getLabel());
+
+        TextView hint = textView(12, false);
+        hint.setAlpha(0.7f);
+        hint.setText("包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
+        form.addView(hint, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
+
+        android.widget.Switch enabled = new android.widget.Switch(this);
+        enabled.setText("规则启用");
+        enabled.setChecked(existing == null || existing.isEnabled());
+        form.addView(enabled, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.addView(form, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(existing == null ? "添加启动规则" : "编辑启动规则")
+                .setView(scrollView)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            android.widget.Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            positive.setOnClickListener(view -> {
+                saveRule(dialog, existing, existingPosition, valueOf(caller), valueOf(target),
+                        valueOf(component), valueOf(action), enabled.isChecked(), valueOf(label),
+                        caller, target, null, null);
+            });
+        });
+        dialog.show();
+    }
+
+    private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
+            String callerPackage, String targetPackage, String componentValue, String actionValue,
+            boolean enabled, String labelValue, EditText callerEdit, EditText targetEdit,
+            @Nullable TextInputLayout callerLayout, @Nullable TextInputLayout targetLayout) {
+        clearError(callerEdit, callerLayout);
+        clearError(targetEdit, targetLayout);
+        if (!isPackagePattern(callerPackage)) {
+            setError(callerEdit, callerLayout, "请输入有效包名或 * 通配符");
+            return;
+        }
+        if (!isPackagePattern(targetPackage)) {
+            setError(targetEdit, targetLayout, "请输入有效包名或 * 通配符");
+            return;
+        }
+        if (!LaunchRule.ANY.equals(callerPackage) && callerPackage.equals(targetPackage)) {
+            setError(targetEdit, targetLayout, "目标包必须与调用方包不同");
+            return;
+        }
+
+        LaunchRule updated = existing == null
+                ? LaunchRule.create(callerPackage, targetPackage, componentValue,
+                actionValue, enabled, labelValue)
+                : existing.withValues(callerPackage, targetPackage, componentValue,
+                actionValue, enabled, labelValue);
+        if (existingPosition < 0) {
+            rules.add(updated);
+        } else if (existingPosition < rules.size()) {
+            rules.set(existingPosition, updated);
+        }
+        try {
+            persistRules();
+            dialog.dismiss();
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Unable to save rule", error);
+            Toast.makeText(this, "规则保存失败，请稍后重试", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static void clearError(EditText edit, @Nullable TextInputLayout layout) {
+        edit.setError(null);
+        if (layout != null) {
+            layout.setError(null);
+        }
+    }
+
+    private static void setError(EditText edit, @Nullable TextInputLayout layout, String message) {
+        if (layout != null) {
+            layout.setError(message);
+        } else {
+            edit.setError(message);
+        }
+        edit.requestFocus();
     }
 
     private void confirmDelete(int position) {
@@ -263,7 +393,23 @@ public final class MainActivity extends AppCompatActivity {
         return new InputField(layout, edit);
     }
 
+    private EditText addPlainInput(LinearLayout form, String hint, String value) {
+        EditText edit = new EditText(this);
+        edit.setHint(hint);
+        edit.setSingleLine(true);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL);
+        edit.setText(value);
+        edit.setSelection(edit.length());
+        form.addView(edit, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
+        return edit;
+    }
+
     private static String valueOf(TextInputEditText edit) {
+        return edit.getText() == null ? "" : edit.getText().toString().trim();
+    }
+
+    private static String valueOf(EditText edit) {
         return edit.getText() == null ? "" : edit.getText().toString().trim();
     }
 
