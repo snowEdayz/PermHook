@@ -2,6 +2,10 @@ package com.snoweday.permhook.ui;
 
 import android.content.Context;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.BackgroundColorSpan;
+import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -45,6 +49,11 @@ import com.snoweday.permhook.data.RuleStore;
 /** Material 3 rule editor for forced Oplus app-start confirmations. */
 public final class MainActivity extends AppCompatActivity {
     private static final String TAG = "PermHookUi";
+    private static final String RULE_REQUIREMENT_HINT =
+            "调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。";
+    private static final String RULE_EDITOR_HINT = RULE_REQUIREMENT_HINT
+            + "\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。"
+            + "\n调用方和目标包必须不同。";
 
     private final ArrayList<LaunchRule> rules = new ArrayList<>();
     private final PermHookApplication.Listener serviceListener =
@@ -220,7 +229,7 @@ public final class MainActivity extends AppCompatActivity {
 
         TextView hint = textView(12, false);
         hint.setAlpha(0.7f);
-        hint.setText("调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
+        hint.setText(RULE_EDITOR_HINT);
         form.addView(hint, marginParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
 
@@ -251,7 +260,8 @@ public final class MainActivity extends AppCompatActivity {
                 String labelValue = valueOf(label.edit);
                 saveRule(dialog, existing, existingPosition, callerPackage, targetPackage,
                         componentValue, actionValue, enabled.isChecked(), labelValue,
-                        caller.edit, target.edit, component.edit, caller.layout, target.layout);
+                        hint, caller.edit, target.edit, component.edit,
+                        caller.layout, target.layout);
             });
         });
         dialog.show();
@@ -275,7 +285,7 @@ public final class MainActivity extends AppCompatActivity {
 
         TextView hint = textView(12, false);
         hint.setAlpha(0.7f);
-        hint.setText("调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
+        hint.setText(RULE_EDITOR_HINT);
         form.addView(hint, marginParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
 
@@ -301,7 +311,7 @@ public final class MainActivity extends AppCompatActivity {
             positive.setOnClickListener(view -> {
                 saveRule(dialog, existing, existingPosition, valueOf(caller), valueOf(target),
                         valueOf(component), valueOf(action), enabled.isChecked(), valueOf(label),
-                        caller, target, component, null, null);
+                        hint, caller, target, component, null, null);
             });
         });
         dialog.show();
@@ -324,13 +334,13 @@ public final class MainActivity extends AppCompatActivity {
 
     private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
             String callerPackage, String targetPackage, String componentValue, String actionValue,
-            boolean enabled, String labelValue, EditText callerEdit, EditText targetEdit,
-            EditText componentEdit, @Nullable TextInputLayout callerLayout,
+            boolean enabled, String labelValue, TextView requirementHint, EditText callerEdit,
+            EditText targetEdit, EditText componentEdit, @Nullable TextInputLayout callerLayout,
             @Nullable TextInputLayout targetLayout) {
         clearError(callerEdit, callerLayout);
         clearError(targetEdit, targetLayout);
         if (callerPackage.isEmpty() && targetPackage.isEmpty() && componentValue.isEmpty()) {
-            setError(callerEdit, callerLayout, "调用方包名、目标包名、组件至少填写一项");
+            highlightRequirementHint(requirementHint);
             return;
         }
         if (callerPackage.isEmpty()) {
@@ -390,7 +400,24 @@ public final class MainActivity extends AppCompatActivity {
         } else {
             edit.setError(message);
         }
-        edit.requestFocus();
+    }
+
+    private static void highlightRequirementHint(TextView hint) {
+        String text = hint.getText().toString();
+        int end = text.indexOf('\n');
+        if (end < 0) {
+            end = text.length();
+        }
+        SpannableString highlighted = new SpannableString(text);
+        int backgroundColor = com.google.android.material.color.MaterialColors.getColor(
+                hint, com.google.android.material.R.attr.colorSecondaryContainer);
+        int foregroundColor = com.google.android.material.color.MaterialColors.getColor(
+                hint, com.google.android.material.R.attr.colorOnSecondaryContainer);
+        highlighted.setSpan(new BackgroundColorSpan(backgroundColor), 0, end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        highlighted.setSpan(new ForegroundColorSpan(foregroundColor), 0, end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        hint.setText(highlighted);
     }
 
     private void confirmDelete(int position) {
