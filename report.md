@@ -182,6 +182,28 @@ system_server 的关键逻辑位于：
 
 - `jadx_out/resources/assets/permission/activity_start_whitelist.xml:3-133`
 
+## system App 目标与用户自定义规则验证
+
+已对 `system_server` 中的 `OplusAppStartConfirmManager` 和当前 Hook 重新核对。OEM 原逻辑在 `isSystemAppOrSameApp` 中先检查目标 `ActivityInfo.applicationInfo`：目标是系统 App，或目标 UID 属于系统 UID 时，会在调用 `IOplusSecurityPermissionManager.checkAllowStartActivity` 之前直接返回空结果。因此如果把自定义规则放在 OEM 权限检查之后，可能被这个短路遗漏。
+
+当前模块仍 Hook 精确的方法签名：
+
+```text
+OplusAppStartConfirmManager.checkStartActivityForConfirm(
+    ActivityRecord, ActivityInfo, Intent, int, int, String,
+    ActivityOptions, ProfilerInfo, boolean
+)
+```
+
+Hook 现在先根据 caller、target 和组件执行用户规则，再决定是否调用 `chain.proceed()`：
+
+- 命中“经过 Activity 确认”时，直接构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，不受 `isSystemAppOrSameApp` 的提前返回影响。
+- 命中“不经过 Activity 确认”时返回空结果，让 `OplusAccessControlManagerService` 继续普通启动流程。
+- 未命中或确认 Activity 不可解析时才继续 OEM 原逻辑。
+- `findMatchingRule` 不检查系统 App 标志，因此 `dst_pkg` 为系统 App 时不会被用户规则过滤；确认流程的内部标记仍会阻止递归。
+
+IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先调用上述确认方法，并在返回非空时直接采用结果；这保证了前置的用户规则结果能够覆盖目标为系统 App 时的 OEM 短路。
+
 关键源码位置：
 
 - `OplusActivityStartController.java:931-970`：黑白名单判断，`src_pkg`、`dst_pkg`、`activity` 命中返回 `-1`。

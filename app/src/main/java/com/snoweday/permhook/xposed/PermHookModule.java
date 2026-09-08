@@ -103,29 +103,32 @@ public final class PermHookModule extends XposedModule {
     }
 
     private Object interceptStart(XposedInterface.Chain chain) throws Throwable {
-        Object originalResult = chain.proceed();
         try {
+            // The OEM method skips system targets in isSystemAppOrSameApp before it
+            // reaches its own permission check. Evaluate user rules first so that
+            // dst_pkg rules are not lost on system applications.
             RuleMatch match = findMatchingRule(chain);
-            if (match == null) {
-                return originalResult;
+            if (match != null) {
+                if (!match.rule.requiresConfirmationActivity()) {
+                    // A null result tells the platform that no confirmation Activity is needed.
+                    return null;
+                }
+                Object confirmationResult = buildConfirmationResult(
+                        chain.getThisObject(),
+                        match.callerPackage,
+                        match.targetPackage,
+                        match.activityInfo,
+                        match.sourceIntent,
+                        match.requestCode,
+                        match.callerUid);
+                if (confirmationResult != null) {
+                    return confirmationResult;
+                }
             }
-            if (!match.rule.requiresConfirmationActivity()) {
-                // A null result tells the platform that no confirmation Activity is needed.
-                return null;
-            }
-            Object confirmationResult = buildConfirmationResult(
-                    chain.getThisObject(),
-                    match.callerPackage,
-                    match.targetPackage,
-                    match.activityInfo,
-                    match.sourceIntent,
-                    match.requestCode,
-                    match.callerUid);
-            return confirmationResult == null ? originalResult : confirmationResult;
         } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Rule evaluation failed; preserving platform result", error);
-            return originalResult;
+            log(Log.ERROR, TAG, "Rule evaluation failed; continuing with platform result", error);
         }
+        return chain.proceed();
     }
 
     private RuleMatch findMatchingRule(XposedInterface.Chain chain) {
