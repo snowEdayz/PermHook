@@ -1,7 +1,5 @@
 package com.snoweday.permhook.data;
 
-import android.content.Intent;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -10,10 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * A user-authored rule describing a caller/target activity start that must be
- * routed through Oplus' confirmation activity.
- */
+/** A user-authored caller/target activity-start rule and its selected operation. */
 public final class LaunchRule {
     public static final String ANY = "*";
 
@@ -21,7 +16,9 @@ public final class LaunchRule {
     private static final String KEY_CALLER = "callerPackage";
     private static final String KEY_TARGET = "targetPackage";
     private static final String KEY_COMPONENT = "component";
-    private static final String KEY_ACTION = "action";
+    private static final String KEY_OPERATION = "operation";
+    private static final String OPERATION_CONFIRM = "confirm";
+    private static final String OPERATION_BYPASS = "bypass";
     private static final String KEY_ENABLED = "enabled";
     private static final String KEY_LABEL = "label";
 
@@ -29,7 +26,7 @@ public final class LaunchRule {
     private final String callerPackage;
     private final String targetPackage;
     private final String component;
-    private final String action;
+    private final boolean requiresConfirmationActivity;
     private final boolean enabled;
     private final String label;
 
@@ -38,14 +35,14 @@ public final class LaunchRule {
             String callerPackage,
             String targetPackage,
             String component,
-            String action,
+            boolean requiresConfirmationActivity,
             boolean enabled,
             String label) {
         this.id = nonBlankOr(id, UUID.randomUUID().toString());
         this.callerPackage = normalizePackage(callerPackage);
         this.targetPackage = normalizePackage(targetPackage);
         this.component = normalizeOptional(component);
-        this.action = normalizeOptional(action);
+        this.requiresConfirmationActivity = requiresConfirmationActivity;
         this.enabled = enabled;
         this.label = normalizeOptional(label);
     }
@@ -54,7 +51,7 @@ public final class LaunchRule {
             String callerPackage,
             String targetPackage,
             String component,
-            String action,
+            boolean requiresConfirmationActivity,
             boolean enabled,
             String label) {
         return new LaunchRule(
@@ -62,7 +59,7 @@ public final class LaunchRule {
                 callerPackage,
                 targetPackage,
                 component,
-                action,
+                requiresConfirmationActivity,
                 enabled,
                 label);
     }
@@ -83,8 +80,8 @@ public final class LaunchRule {
         return component;
     }
 
-    public String getAction() {
-        return action;
+    public boolean requiresConfirmationActivity() {
+        return requiresConfirmationActivity;
     }
 
     public boolean isEnabled() {
@@ -96,14 +93,15 @@ public final class LaunchRule {
     }
 
     public LaunchRule withEnabled(boolean value) {
-        return new LaunchRule(id, callerPackage, targetPackage, component, action, value, label);
+        return new LaunchRule(id, callerPackage, targetPackage, component,
+                requiresConfirmationActivity, value, label);
     }
 
     public LaunchRule withValues(
             String newCaller,
             String newTarget,
             String newComponent,
-            String newAction,
+            boolean newRequiresConfirmationActivity,
             boolean newEnabled,
             String newLabel) {
         return new LaunchRule(
@@ -111,7 +109,7 @@ public final class LaunchRule {
                 newCaller,
                 newTarget,
                 newComponent,
-                newAction,
+                newRequiresConfirmationActivity,
                 newEnabled,
                 newLabel);
     }
@@ -124,8 +122,7 @@ public final class LaunchRule {
             String actualCaller,
             String actualTarget,
             String fullComponent,
-            String shortComponent,
-            String actualAction) {
+            String shortComponent) {
         if (!enabled || isBlank(actualCaller) || isBlank(actualTarget)
                 || actualCaller.equals(actualTarget)) {
             return false;
@@ -139,7 +136,7 @@ public final class LaunchRule {
                 && !globMatches(component, shortComponent)) {
             return false;
         }
-        return isBlank(action) || globMatches(action, actualAction);
+        return true;
     }
 
     public String summary() {
@@ -149,9 +146,10 @@ public final class LaunchRule {
         if (!isBlank(component)) {
             builder.append(" / ").append(component);
         }
-        if (!isBlank(action)) {
-            builder.append(" · ").append(action);
-        }
+        builder.append(" · ")
+                .append(requiresConfirmationActivity
+                        ? "经过 Activity 确认"
+                        : "不经过 Activity 确认");
         return builder.toString();
     }
 
@@ -161,7 +159,8 @@ public final class LaunchRule {
         object.put(KEY_CALLER, callerPackage);
         object.put(KEY_TARGET, targetPackage);
         object.put(KEY_COMPONENT, component);
-        object.put(KEY_ACTION, action);
+        object.put(KEY_OPERATION,
+                requiresConfirmationActivity ? OPERATION_CONFIRM : OPERATION_BYPASS);
         object.put(KEY_ENABLED, enabled);
         object.put(KEY_LABEL, label);
         return object;
@@ -176,12 +175,14 @@ public final class LaunchRule {
         if (caller.isEmpty() || target.isEmpty()) {
             throw new IllegalArgumentException("callerPackage and targetPackage are required");
         }
+        String operation = object.optString(KEY_OPERATION, OPERATION_CONFIRM).trim();
+        boolean requiresConfirmationActivity = !OPERATION_BYPASS.equalsIgnoreCase(operation);
         return new LaunchRule(
                 object.optString(KEY_ID, ""),
                 caller,
                 target,
                 object.optString(KEY_COMPONENT, ""),
-                object.optString(KEY_ACTION, ""),
+                requiresConfirmationActivity,
                 object.optBoolean(KEY_ENABLED, true),
                 object.optString(KEY_LABEL, ""));
     }

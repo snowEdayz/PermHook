@@ -13,6 +13,8 @@ import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -31,6 +33,7 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -46,13 +49,14 @@ import com.snoweday.permhook.R;
 import com.snoweday.permhook.data.LaunchRule;
 import com.snoweday.permhook.data.RuleStore;
 
-/** Material 3 rule editor for forced Oplus app-start confirmations. */
+/** Material 3 rule editor for Oplus app-start confirmation operations. */
 public final class MainActivity extends AppCompatActivity {
     private static final String TAG = "PermHookUi";
     private static final String RULE_REQUIREMENT_HINT =
             "调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。";
     private static final String RULE_EDITOR_HINT = RULE_REQUIREMENT_HINT
             + "\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。"
+            + "\n操作可选择经过 Activity 确认或不经过 Activity 直接启动。"
             + "\n调用方和目标包必须不同。";
 
     private final ArrayList<LaunchRule> rules = new ArrayList<>();
@@ -224,7 +228,8 @@ public final class MainActivity extends AppCompatActivity {
         InputField caller = addInput(form, "调用方包名", existing == null ? "" : existing.getCallerPackage());
         InputField target = addInput(form, "目标包名", existing == null ? "" : existing.getTargetPackage());
         InputField component = addInput(form, "组件", existing == null ? "" : existing.getComponent());
-        InputField action = addInput(form, "Intent action（可选）", existing == null ? "" : existing.getAction());
+        OperationSelector operation = addMaterialOperationSelector(
+                form, existing == null || existing.requiresConfirmationActivity());
         InputField label = addInput(form, "备注（可选）", existing == null ? "" : existing.getLabel());
 
         TextView hint = textView(12, false);
@@ -256,10 +261,9 @@ public final class MainActivity extends AppCompatActivity {
                 String callerPackage = valueOf(caller.edit);
                 String targetPackage = valueOf(target.edit);
                 String componentValue = valueOf(component.edit);
-                String actionValue = valueOf(action.edit);
                 String labelValue = valueOf(label.edit);
                 saveRule(dialog, existing, existingPosition, callerPackage, targetPackage,
-                        componentValue, actionValue, enabled.isChecked(), labelValue,
+                        componentValue, operation.requiresConfirmation(), enabled.isChecked(), labelValue,
                         hint, caller.edit, target.edit, component.edit,
                         caller.layout, target.layout);
             });
@@ -278,8 +282,8 @@ public final class MainActivity extends AppCompatActivity {
                 existing == null ? "" : existing.getTargetPackage());
         EditText component = addPlainInput(form, "组件",
                 existing == null ? "" : existing.getComponent());
-        EditText action = addPlainInput(form, "Intent action（可选）",
-                existing == null ? "" : existing.getAction());
+        OperationSelector operation = addFallbackOperationSelector(
+                form, existing == null || existing.requiresConfirmationActivity());
         EditText label = addPlainInput(form, "备注（可选）",
                 existing == null ? "" : existing.getLabel());
 
@@ -310,7 +314,8 @@ public final class MainActivity extends AppCompatActivity {
             android.widget.Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             positive.setOnClickListener(view -> {
                 saveRule(dialog, existing, existingPosition, valueOf(caller), valueOf(target),
-                        valueOf(component), valueOf(action), enabled.isChecked(), valueOf(label),
+                        valueOf(component), operation.requiresConfirmation(), enabled.isChecked(),
+                        valueOf(label),
                         hint, caller, target, component, null, null);
             });
         });
@@ -332,9 +337,50 @@ public final class MainActivity extends AppCompatActivity {
         return titleBar;
     }
 
+    private OperationSelector addMaterialOperationSelector(
+            LinearLayout form, boolean requiresConfirmation) {
+        return addOperationSelector(form, requiresConfirmation, true);
+    }
+
+    private OperationSelector addFallbackOperationSelector(
+            LinearLayout form, boolean requiresConfirmation) {
+        return addOperationSelector(form, requiresConfirmation, false);
+    }
+
+    private OperationSelector addOperationSelector(
+            LinearLayout form, boolean requiresConfirmation, boolean material) {
+        TextView operationLabel = textView(14, true);
+        operationLabel.setText("操作");
+        form.addView(operationLabel, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                0, 8, 0, 0));
+
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton confirm = material
+                ? new MaterialRadioButton(this) : new RadioButton(this);
+        confirm.setText("经过 Activity 确认");
+        confirm.setContentDescription("经过 Activity 确认");
+        RadioButton bypass = material
+                ? new MaterialRadioButton(this) : new RadioButton(this);
+        bypass.setText("不经过 Activity 确认");
+        bypass.setContentDescription("不经过 Activity 确认");
+        group.addView(confirm, new RadioGroup.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        group.addView(bypass, new RadioGroup.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        confirm.setChecked(requiresConfirmation);
+        bypass.setChecked(!requiresConfirmation);
+        form.addView(group, marginParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                0, 0, 0, 0));
+        return new OperationSelector(confirm);
+    }
+
     private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
-            String callerPackage, String targetPackage, String componentValue, String actionValue,
-            boolean enabled, String labelValue, TextView requirementHint, EditText callerEdit,
+            String callerPackage, String targetPackage, String componentValue,
+            boolean requiresConfirmation, boolean enabled, String labelValue,
+            TextView requirementHint, EditText callerEdit,
             EditText targetEdit, EditText componentEdit, @Nullable TextInputLayout callerLayout,
             @Nullable TextInputLayout targetLayout) {
         clearError(callerEdit, callerLayout);
@@ -370,9 +416,9 @@ public final class MainActivity extends AppCompatActivity {
 
         LaunchRule updated = existing == null
                 ? LaunchRule.create(callerPackage, targetPackage, componentValue,
-                actionValue, enabled, labelValue)
+                requiresConfirmation, enabled, labelValue)
                 : existing.withValues(callerPackage, targetPackage, componentValue,
-                actionValue, enabled, labelValue);
+                requiresConfirmation, enabled, labelValue);
         if (existingPosition < 0) {
             rules.add(updated);
         } else if (existingPosition < rules.size()) {
@@ -612,6 +658,18 @@ public final class MainActivity extends AppCompatActivity {
         InputField(TextInputLayout layout, TextInputEditText edit) {
             this.layout = layout;
             this.edit = edit;
+        }
+    }
+
+    private static final class OperationSelector {
+        private final RadioButton confirmationOption;
+
+        OperationSelector(RadioButton confirmationOption) {
+            this.confirmationOption = confirmationOption;
+        }
+
+        boolean requiresConfirmation() {
+            return confirmationOption.isChecked();
         }
     }
 }

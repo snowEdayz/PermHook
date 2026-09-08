@@ -25,6 +25,7 @@ import com.snoweday.permhook.data.RuleStore;
 /**
  * Modern API entry point. It runs only in system_server and augments the
  * platform's own app-start confirmation decision with user-authored rules.
+ * Each matching rule can either force the confirmation Activity or bypass it.
  */
 public final class PermHookModule extends XposedModule {
     private static final String TAG = "PermHook";
@@ -104,15 +105,30 @@ public final class PermHookModule extends XposedModule {
     private Object interceptStart(XposedInterface.Chain chain) throws Throwable {
         Object originalResult = chain.proceed();
         try {
-            Object forcedResult = forceConfirmationIfMatched(chain);
-            return forcedResult == null ? originalResult : forcedResult;
+            RuleMatch match = findMatchingRule(chain);
+            if (match == null) {
+                return originalResult;
+            }
+            if (!match.rule.requiresConfirmationActivity()) {
+                // A null result tells the platform that no confirmation Activity is needed.
+                return null;
+            }
+            Object confirmationResult = buildConfirmationResult(
+                    chain.getThisObject(),
+                    match.callerPackage,
+                    match.targetPackage,
+                    match.activityInfo,
+                    match.sourceIntent,
+                    match.requestCode,
+                    match.callerUid);
+            return confirmationResult == null ? originalResult : confirmationResult;
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Rule evaluation failed; preserving platform result", error);
             return originalResult;
         }
     }
 
-    private Object forceConfirmationIfMatched(XposedInterface.Chain chain) {
+    private RuleMatch findMatchingRule(XposedInterface.Chain chain) {
         Object activityInfoObject = chain.getArg(1);
         Object sourceIntentObject = chain.getArg(2);
         Object requestCodeObject = chain.getArg(3);
@@ -144,11 +160,10 @@ public final class PermHookModule extends XposedModule {
         }
         String fullComponent = component.flattenToString();
         String shortComponent = component.flattenToShortString();
-        String action = sourceIntent.getAction();
         for (LaunchRule rule : rules) {
-            if (rule.matches(callerPackage, targetPackage, fullComponent, shortComponent, action)) {
-                return buildConfirmationResult(
-                        chain.getThisObject(),
+            if (rule.matches(callerPackage, targetPackage, fullComponent, shortComponent)) {
+                return new RuleMatch(
+                        rule,
                         callerPackage,
                         targetPackage,
                         activityInfo,
@@ -238,5 +253,32 @@ public final class PermHookModule extends XposedModule {
             }
         }
         return null;
+    }
+
+    private static final class RuleMatch {
+        final LaunchRule rule;
+        final String callerPackage;
+        final String targetPackage;
+        final ActivityInfo activityInfo;
+        final Intent sourceIntent;
+        final int requestCode;
+        final int callerUid;
+
+        RuleMatch(
+                LaunchRule rule,
+                String callerPackage,
+                String targetPackage,
+                ActivityInfo activityInfo,
+                Intent sourceIntent,
+                int requestCode,
+                int callerUid) {
+            this.rule = rule;
+            this.callerPackage = callerPackage;
+            this.targetPackage = targetPackage;
+            this.activityInfo = activityInfo;
+            this.sourceIntent = sourceIntent;
+            this.requestCode = requestCode;
+            this.callerUid = callerUid;
+        }
     }
 }
