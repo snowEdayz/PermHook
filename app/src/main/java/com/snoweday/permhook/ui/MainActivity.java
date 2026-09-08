@@ -212,15 +212,15 @@ public final class MainActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(24), 0, dp(24), 0);
 
-        InputField caller = addInput(form, "调用方包名（必填）", existing == null ? "" : existing.getCallerPackage());
-        InputField target = addInput(form, "目标包名（必填）", existing == null ? "" : existing.getTargetPackage());
-        InputField component = addInput(form, "组件（可选）", existing == null ? "" : existing.getComponent());
+        InputField caller = addInput(form, "调用方包名", existing == null ? "" : existing.getCallerPackage());
+        InputField target = addInput(form, "目标包名", existing == null ? "" : existing.getTargetPackage());
+        InputField component = addInput(form, "组件", existing == null ? "" : existing.getComponent());
         InputField action = addInput(form, "Intent action（可选）", existing == null ? "" : existing.getAction());
         InputField label = addInput(form, "备注（可选）", existing == null ? "" : existing.getLabel());
 
         TextView hint = textView(12, false);
         hint.setAlpha(0.7f);
-        hint.setText("包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
+        hint.setText("调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
         form.addView(hint, marginParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
 
@@ -251,7 +251,7 @@ public final class MainActivity extends AppCompatActivity {
                 String labelValue = valueOf(label.edit);
                 saveRule(dialog, existing, existingPosition, callerPackage, targetPackage,
                         componentValue, actionValue, enabled.isChecked(), labelValue,
-                        caller.edit, target.edit, caller.layout, target.layout);
+                        caller.edit, target.edit, component.edit, caller.layout, target.layout);
             });
         });
         dialog.show();
@@ -262,11 +262,11 @@ public final class MainActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(24), dp(8), dp(24), 0);
 
-        EditText caller = addPlainInput(form, "调用方包名（必填）",
+        EditText caller = addPlainInput(form, "调用方包名",
                 existing == null ? "" : existing.getCallerPackage());
-        EditText target = addPlainInput(form, "目标包名（必填）",
+        EditText target = addPlainInput(form, "目标包名",
                 existing == null ? "" : existing.getTargetPackage());
-        EditText component = addPlainInput(form, "组件（可选）",
+        EditText component = addPlainInput(form, "组件",
                 existing == null ? "" : existing.getComponent());
         EditText action = addPlainInput(form, "Intent action（可选）",
                 existing == null ? "" : existing.getAction());
@@ -275,7 +275,7 @@ public final class MainActivity extends AppCompatActivity {
 
         TextView hint = textView(12, false);
         hint.setAlpha(0.7f);
-        hint.setText("包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
+        hint.setText("调用方包名、目标包名、组件至少填写一项；空白项会自动补为 *。\n包名支持 * 通配符；组件可填 target/.MainActivity 或完整 target/com.example.MainActivity。\n调用方和目标包必须不同。");
         form.addView(hint, marginParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
 
@@ -301,7 +301,7 @@ public final class MainActivity extends AppCompatActivity {
             positive.setOnClickListener(view -> {
                 saveRule(dialog, existing, existingPosition, valueOf(caller), valueOf(target),
                         valueOf(component), valueOf(action), enabled.isChecked(), valueOf(label),
-                        caller, target, null, null);
+                        caller, target, component, null, null);
             });
         });
         dialog.show();
@@ -310,9 +310,26 @@ public final class MainActivity extends AppCompatActivity {
     private void saveRule(AlertDialog dialog, @Nullable LaunchRule existing, int existingPosition,
             String callerPackage, String targetPackage, String componentValue, String actionValue,
             boolean enabled, String labelValue, EditText callerEdit, EditText targetEdit,
-            @Nullable TextInputLayout callerLayout, @Nullable TextInputLayout targetLayout) {
+            EditText componentEdit, @Nullable TextInputLayout callerLayout,
+            @Nullable TextInputLayout targetLayout) {
         clearError(callerEdit, callerLayout);
         clearError(targetEdit, targetLayout);
+        if (callerPackage.isEmpty() && targetPackage.isEmpty() && componentValue.isEmpty()) {
+            setError(callerEdit, callerLayout, "调用方包名、目标包名、组件至少填写一项");
+            return;
+        }
+        if (callerPackage.isEmpty()) {
+            callerPackage = LaunchRule.ANY;
+            callerEdit.setText(callerPackage);
+        }
+        if (targetPackage.isEmpty()) {
+            targetPackage = LaunchRule.ANY;
+            targetEdit.setText(targetPackage);
+        }
+        if (componentValue.isEmpty()) {
+            componentValue = LaunchRule.ANY;
+            componentEdit.setText(componentValue);
+        }
         if (!isPackagePattern(callerPackage)) {
             setError(callerEdit, callerLayout, "请输入有效包名或 * 通配符");
             return;
