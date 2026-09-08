@@ -271,7 +271,7 @@ public final class PermHookModule extends XposedModule {
         return LaunchRule.decode(preferences.getString(RuleStore.RULES_KEY, "[]"));
     }
 
-    private static boolean isUserApp(Context context, String packageName, int callerUid) {
+    private boolean isUserApp(Context context, String packageName, int callerUid) {
         if (context == null || packageName == null || !isApplicationUid(callerUid)) {
             return false;
         }
