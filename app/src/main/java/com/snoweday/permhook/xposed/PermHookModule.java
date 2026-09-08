@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.util.Log;
@@ -48,6 +49,7 @@ public final class PermHookModule extends XposedModule {
 
     private static final int CONFIRM_VERSION = 2;
     private static final int START_TYPE_NORMAL = 0;
+    private static final int FIRST_APPLICATION_UID = 10000;
     private static final int UID_PER_USER_RANGE = 100000;
 
     private volatile List<LaunchRule> rules = Collections.emptyList();
@@ -156,8 +158,26 @@ public final class PermHookModule extends XposedModule {
             return null;
         }
 
+        boolean needsCallerUserApp = false;
+        boolean needsTargetUserApp = false;
         for (LaunchRule rule : rules) {
-            if (rule.matches(callerPackage, targetPackage)) {
+            if (!rule.isEnabled()) {
+                continue;
+            }
+            needsCallerUserApp |= LaunchRule.ANY_USER.equals(rule.getCallerPackage());
+            needsTargetUserApp |= LaunchRule.ANY_USER.equals(rule.getTargetPackage());
+            if (needsCallerUserApp && needsTargetUserApp) {
+                break;
+            }
+        }
+        Context context = needsCallerUserApp ? findContext(chain.getThisObject()) : null;
+        boolean callerIsUserApp = needsCallerUserApp
+                && isUserApp(context, callerPackage, (Integer) callingUidObject);
+        boolean targetIsUserApp = needsTargetUserApp
+                && isUserApp(activityInfo.applicationInfo);
+        for (LaunchRule rule : rules) {
+            if (rule.matches(callerPackage, targetPackage,
+                    callerIsUserApp, targetIsUserApp)) {
                 return new RuleMatch(
                         rule,
                         callerPackage,
@@ -230,6 +250,33 @@ public final class PermHookModule extends XposedModule {
 
     private static List<LaunchRule> readRules(SharedPreferences preferences) {
         return LaunchRule.decode(preferences.getString(RuleStore.RULES_KEY, "[]"));
+    }
+
+    private static boolean isUserApp(Context context, String packageName, int callerUid) {
+        if (context == null || packageName == null || !isApplicationUid(callerUid)) {
+            return false;
+        }
+        try {
+            ApplicationInfo applicationInfo = context.getPackageManager()
+                    .getApplicationInfo(packageName, 0);
+            return applicationInfo != null
+                    && (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to classify caller as a user app", error);
+            return false;
+        }
+    }
+
+    private static boolean isUserApp(ApplicationInfo applicationInfo) {
+        return applicationInfo != null
+                && isApplicationUid(applicationInfo.uid)
+                && (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
+    }
+
+    private static boolean isApplicationUid(int uid) {
+        return uid >= 0 && uid % UID_PER_USER_RANGE >= FIRST_APPLICATION_UID;
     }
 
     private static Context findContext(Object manager) {

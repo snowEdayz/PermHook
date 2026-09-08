@@ -213,6 +213,8 @@ IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先
 
 `LaunchRule.matches` 仅校验调用方和目标包名；空白包名由编辑器保存为 `*`，表示匹配任意包。历史规则中的未知字段不会参与匹配。调用方和目标包仍要求是跨包启动。
 
+`any_user` 是调用方或目标包名字段的精确特殊 token：只有字段完整等于 `any_user` 时，才要求对应实际包是非系统 User App。目标状态取自已解析的 `ActivityInfo.applicationInfo`；调用方状态由 system_server 的 `PackageManager` 查询，并同时检查调用 UID 是否属于应用 UID。`*` 仍表示不区分是否为系统 App 的任意包匹配。
+
 关键源码位置：
 
 - `OplusActivityStartController.java:931-970`：黑白名单判断，`src_pkg`、`dst_pkg`、`activity` 命中返回 `-1`。

@@ -55,7 +55,7 @@ public final class MainActivity extends AppCompatActivity {
     private static final String RULE_REQUIREMENT_HINT =
             "调用方包名、目标包名至少填写一项；空白项会自动补为 *。";
     private static final String RULE_EDITOR_HINT = RULE_REQUIREMENT_HINT
-            + "\n包名支持 * 通配符。"
+            + "\n包名支持 * 通配符；完整输入 any_user 可匹配任意 User App。"
             + "\n操作可选择经过 Activity 确认或不经过 Activity 直接启动。"
             + "\n调用方和目标包必须不同。";
 
@@ -393,14 +393,16 @@ public final class MainActivity extends AppCompatActivity {
             targetEdit.setText(targetPackage);
         }
         if (!isPackagePattern(callerPackage)) {
-            setError(callerEdit, callerLayout, "请输入有效包名或 * 通配符");
+            setError(callerEdit, callerLayout, "请输入有效包名、* 或 any_user");
             return;
         }
         if (!isPackagePattern(targetPackage)) {
-            setError(targetEdit, targetLayout, "请输入有效包名或 * 通配符");
+            setError(targetEdit, targetLayout, "请输入有效包名、* 或 any_user");
             return;
         }
-        if (!LaunchRule.ANY.equals(callerPackage) && callerPackage.equals(targetPackage)) {
+        if (!LaunchRule.ANY.equals(callerPackage)
+                && !LaunchRule.ANY_USER.equals(callerPackage)
+                && callerPackage.equals(targetPackage)) {
             setError(targetEdit, targetLayout, "目标包必须与调用方包不同");
             return;
         }
@@ -510,6 +512,9 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private static boolean isPackagePattern(String value) {
+        if (LaunchRule.ANY_USER.equals(value)) {
+            return true;
+        }
         return !value.isEmpty() && value.matches("[A-Za-z0-9_.*]+") && !value.contains("..")
                 && !value.startsWith(".") && !value.endsWith(".");
     }

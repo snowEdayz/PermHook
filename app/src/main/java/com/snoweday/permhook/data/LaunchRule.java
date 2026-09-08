@@ -11,6 +11,7 @@ import java.util.UUID;
 /** A user-authored caller/target activity-start rule and its selected operation. */
 public final class LaunchRule {
     public static final String ANY = "*";
+    public static final String ANY_USER = "any_user";
 
     private static final String KEY_ID = "id";
     private static final String KEY_CALLER = "callerPackage";
@@ -105,14 +106,20 @@ public final class LaunchRule {
     /**
      * Matches a resolved start request. A rule only applies to a cross-package
      * start; same-package starts are intentionally left to the platform.
+     * The {@link #ANY_USER} token is handled as a non-system User App matcher
+     * only when the complete field value equals {@code any_user}.
      */
-    public boolean matches(String actualCaller, String actualTarget) {
+    public boolean matches(
+            String actualCaller,
+            String actualTarget,
+            boolean actualCallerUserApp,
+            boolean actualTargetUserApp) {
         if (!enabled || isBlank(actualCaller) || isBlank(actualTarget)
                 || actualCaller.equals(actualTarget)) {
             return false;
         }
-        if (!globMatches(callerPackage, actualCaller)
-                || !globMatches(targetPackage, actualTarget)) {
+        if (!matchesPackage(callerPackage, actualCaller, actualCallerUserApp)
+                || !matchesPackage(targetPackage, actualTarget, actualTargetUserApp)) {
             return false;
         }
         return true;
@@ -215,6 +222,14 @@ public final class LaunchRule {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private static boolean matchesPackage(
+            String pattern, String actualPackage, boolean actualIsUserApp) {
+        if (ANY_USER.equals(pattern)) {
+            return actualIsUserApp;
+        }
+        return globMatches(pattern, actualPackage);
     }
 
     /** Simple case-sensitive glob matching with '*' as the only wildcard. */
