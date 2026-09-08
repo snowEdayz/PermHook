@@ -10,6 +10,7 @@ PermHook 是一个基于 Modern Xposed API 102 的 Oplus/ColorOS 活动启动确
 - 包名完整填写 `any_user` 时匹配任意非系统 User App；只有完整等于 `any_user` 才启用该语义。
 - 命中规则后可选择经过 Activity 确认或直接启动应用。
 - 规则支持 `*` 通配符，且只对不同包之间的启动生效。
+- 同包启动始终直接允许，不经过确认 Activity；编辑器也禁止保存相同的具体调用方和目标包名（`*/*`、`any_user/any_user` 除外）。
 - “经过 Activity 确认”操作会走 `com.oplusos.securitypermission.permission.ui.AppStartConfirmDialogActivity`。
 - 使用 Modern Xposed Remote Preferences 在设置 App 与 `system_server` 之间同步规则。
 

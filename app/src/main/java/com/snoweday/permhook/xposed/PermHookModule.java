@@ -105,6 +105,10 @@ public final class PermHookModule extends XposedModule {
 
     private Object interceptStart(XposedInterface.Chain chain) throws Throwable {
         try {
+            if (isSamePackageStart(chain)) {
+                // Same-package starts are always allowed without the confirmation Activity.
+                return null;
+            }
             // The OEM method skips system targets in isSystemAppOrSameApp before it
             // reaches its own permission check. Evaluate user rules first so that
             // dst_pkg rules are not lost on system applications.
@@ -130,6 +134,21 @@ public final class PermHookModule extends XposedModule {
             log(Log.ERROR, TAG, "Rule evaluation failed; continuing with platform result", error);
         }
         return chain.proceed();
+    }
+
+    private static boolean isSamePackageStart(XposedInterface.Chain chain) {
+        Object activityInfoObject = chain.getArg(1);
+        Object callerPackageObject = chain.getArg(5);
+        if (!(activityInfoObject instanceof ActivityInfo)
+                || !(callerPackageObject instanceof String)) {
+            return false;
+        }
+
+        ActivityInfo activityInfo = (ActivityInfo) activityInfoObject;
+        ApplicationInfo applicationInfo = activityInfo.applicationInfo;
+        String targetPackage = applicationInfo == null ? null : applicationInfo.packageName;
+        String callerPackage = (String) callerPackageObject;
+        return targetPackage != null && callerPackage.equals(targetPackage);
     }
 
     private RuleMatch findMatchingRule(XposedInterface.Chain chain) {

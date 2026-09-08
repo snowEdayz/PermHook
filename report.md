@@ -199,6 +199,7 @@ Hook 现在先根据 caller 和 target 执行用户规则，再决定是否调�
 
 - 命中“经过 Activity 确认”时，直接构造与 OEM 相同形状的 `Pair<Pair<Intent, ActivityInfo>, Boolean>`，不受 `isSystemAppOrSameApp` 的提前返回影响。
 - 命中“不经过 Activity 确认”时返回空结果，让 `OplusAccessControlManagerService` 继续普通启动流程。
+- 调用方包名与目标包名相同时，在规则匹配前直接返回空结果，始终不经过确认 Activity；`LaunchRule.matches` 中也保留同包防线。
 - 未命中或确认 Activity 不可解析时才继续 OEM 原逻辑。
 - `findMatchingRule` 不检查系统 App 标志，因此 `dst_pkg` 为系统 App 时不会被用户规则过滤；确认流程的内部标记仍会阻止递归。
 
@@ -211,7 +212,7 @@ IDA 交叉验证了 `OplusAccessControlManagerService.checkStartActivity` 会先
 1. 调用方包名匹配 `callerPkg`。
 2. 目标包名匹配 `aInfo.applicationInfo.packageName`。
 
-`LaunchRule.matches` 仅校验调用方和目标包名；空白包名由编辑器保存为 `*`，表示匹配任意包。历史规则中的未知字段不会参与匹配。调用方和目标包仍要求是跨包启动。
+`LaunchRule.matches` 仅校验调用方和目标包名；空白包名由编辑器保存为 `*`，表示匹配任意包。历史规则中的未知字段不会参与匹配。调用方和目标包必须是跨包启动；同包启动在 Hook 入口直接放行，不经过确认 Activity。编辑器不允许保存相同的具体调用方和目标包名，但保留 `*/*` 与 `any_user/any_user` 这类通配规则。
 
 `any_user` 是调用方或目标包名字段的精确特殊 token：只有字段完整等于 `any_user` 时，才要求对应实际包是非系统 User App。目标状态取自已解析的 `ActivityInfo.applicationInfo`；调用方状态由 system_server 的 `PackageManager` 查询，并同时检查调用 UID 是否属于应用 UID。`*` 仍表示不区分是否为系统 App 的任意包匹配。
 
