@@ -19,7 +19,7 @@ if (!hasReleaseSigning) {
 
 android {
     namespace = "com.snoweday.permhook"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.snoweday.permhook"
